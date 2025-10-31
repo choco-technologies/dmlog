@@ -29,6 +29,9 @@
 #define DEFAULT_MAX_ENTRY_SIZE DMOD_LOG_MAX_ENTRY_SIZE
 #define DEFAULT_MAX_STARTUP_ENTRIES 100
 
+/* Validation constants */
+#define DMLOG_INVALID_ID_THRESHOLD 0xFFFFFF00  /* IDs above this are considered invalid/uninitialized */
+
 /* Buffer sizes */
 #define RESPONSE_BUFFER_SIZE 32768
 #define RECV_CHUNK_SIZE 1024
@@ -54,16 +57,22 @@ typedef struct {
     bool debug;
 } dmlog_monitor_t;
 
-/* Ring control structure (matching dmlog_ring_t memory layout for reading) */
+/* Ring control structure (matching dmlog_ring_t memory layout for reading)
+ * Note: We only read the first 20 bytes of the control structure:
+ * - magic(4) + latest_id(4) + flags(4) + head_offset(4) + tail_offset(4) = 20 bytes
+ * The buffer_size and buffer pointer fields that follow are not read,
+ * as they are not needed for monitoring and their values are known from parameters.
+ */
 typedef struct {
     uint32_t magic;
     dmlog_entry_id_t latest_id;
     uint32_t flags;
     dmlog_index_t head_offset;
     dmlog_index_t tail_offset;
-    /* Note: buffer_size and buffer pointer are not read from memory,
-     * as we only need the control fields for monitoring */
 } ring_control_t;
+
+/* Size of the control structure to read from memory (in bytes) */
+#define RING_CONTROL_READ_SIZE 20  /* magic(4) + latest_id(4) + flags(4) + head(4) + tail(4) */
 
 /* Log entry structure */
 typedef struct {
@@ -206,8 +215,9 @@ static uint8_t* openocd_read_memory(openocd_client_t* client, uint32_t address,
     static uint8_t data[DMOD_LOG_MAX_ENTRY_SIZE * 2];
     char cmd[256];
     char* response;
-    uint32_t words[DMOD_LOG_MAX_ENTRY_SIZE / 2];
-    int word_count = 0;
+    /* Allocate words array with proper size: need enough words to cover size plus alignment */
+    uint32_t words[(DMOD_LOG_MAX_ENTRY_SIZE + 3) / 4 + 1];
+    size_t word_count = 0;
     
     /* Calculate alignment */
     uint32_t alignment_offset = address % 4;
@@ -239,7 +249,7 @@ static uint8_t* openocd_read_memory(openocd_client_t* client, uint32_t address,
                 
                 /* Parse hex values */
                 char* token = strtok(colon, " \t");
-                while (token != NULL && word_count < (int)(sizeof(words) / sizeof(words[0]))) {
+                while (token != NULL && word_count < sizeof(words) / sizeof(words[0])) {
                     if (strlen(token) == 8) {
                         /* Parse hex value without 0x prefix */
                         words[word_count++] = (uint32_t)strtoul(token, NULL, 16);
@@ -253,7 +263,7 @@ static uint8_t* openocd_read_memory(openocd_client_t* client, uint32_t address,
     
     /* Convert words to bytes (little endian) */
     size_t byte_count = 0;
-    for (int i = 0; i < word_count && byte_count < sizeof(data) - 4; i++) {
+    for (size_t i = 0; i < word_count && byte_count < sizeof(data) - 4; i++) {
         data[byte_count++] = (words[i] >> 0) & 0xFF;
         data[byte_count++] = (words[i] >> 8) & 0xFF;
         data[byte_count++] = (words[i] >> 16) & 0xFF;
@@ -317,7 +327,7 @@ static bool read_ring_control(dmlog_monitor_t* monitor, ring_control_t* control)
         }
         
         /* Validate values */
-        if (control->latest_id < 0xFFFFFF00 && 
+        if (control->latest_id < DMLOG_INVALID_ID_THRESHOLD && 
             control->head_offset < monitor->total_size && 
             control->tail_offset < monitor->total_size) {
             return true;
@@ -569,7 +579,7 @@ int main(int argc, char *argv[]) {
     dmlog_monitor_t monitor = {
         .client = &client,
         .ring_addr = DEFAULT_RING_ADDR,
-        .ring_control_size = sizeof(ring_control_t), /* Use sizeof for consistency */
+        .ring_control_size = RING_CONTROL_READ_SIZE,  /* Use defined constant */
         .total_size = DEFAULT_TOTAL_SIZE,
         .max_entry_size = DEFAULT_MAX_ENTRY_SIZE,
         .expected_magic = DMLOG_MAGIC_NUMBER,
