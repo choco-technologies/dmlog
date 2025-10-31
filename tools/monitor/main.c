@@ -48,6 +48,7 @@ typedef struct {
     openocd_client_t* client;
     uint32_t ring_addr;
     uint32_t ring_control_size;
+    uint32_t buffer_addr;  /* Address where log entries are stored */
     uint32_t total_size;
     uint32_t max_entry_size;
     uint32_t expected_magic;
@@ -58,10 +59,12 @@ typedef struct {
 } dmlog_monitor_t;
 
 /* Ring control structure (matching dmlog_ring_t memory layout for reading)
- * Note: We only read the first 20 bytes of the control structure:
+ * We need to read:
  * - magic(4) + latest_id(4) + flags(4) + head_offset(4) + tail_offset(4) = 20 bytes
- * The buffer_size and buffer pointer fields that follow are not read,
- * as they are not needed for monitoring and their values are known from parameters.
+ * - buffer_size(4) = 4 bytes
+ * - buffer pointer(4 or 8 bytes depending on architecture)
+ * 
+ * The buffer pointer tells us where the actual log entries are stored in memory.
  */
 typedef struct {
     uint32_t magic;
@@ -69,10 +72,12 @@ typedef struct {
     uint32_t flags;
     dmlog_index_t head_offset;
     dmlog_index_t tail_offset;
+    dmlog_index_t buffer_size;
+    uint32_t buffer_addr;  /* Address of the buffer (assuming 32-bit pointers) */
 } ring_control_t;
 
 /* Size of the control structure to read from memory (in bytes) */
-#define RING_CONTROL_READ_SIZE 20  /* magic(4) + latest_id(4) + flags(4) + head(4) + tail(4) */
+#define RING_CONTROL_READ_SIZE 28  /* magic(4) + latest_id(4) + flags(4) + head(4) + tail(4) + buffer_size(4) + buffer_addr(4) */
 
 /* Log entry structure */
 typedef struct {
@@ -317,6 +322,8 @@ static bool read_ring_control(dmlog_monitor_t* monitor, ring_control_t* control)
         memcpy(&control->flags, data + 8, 4);
         memcpy(&control->head_offset, data + 12, 4);
         memcpy(&control->tail_offset, data + 16, 4);
+        memcpy(&control->buffer_size, data + 20, 4);
+        memcpy(&control->buffer_addr, data + 24, 4);
         
         /* Check magic number */
         if (control->magic != monitor->expected_magic) {
@@ -326,10 +333,16 @@ static bool read_ring_control(dmlog_monitor_t* monitor, ring_control_t* control)
             continue;
         }
         
+        /* Update monitor with buffer address from control structure */
+        if (control->buffer_addr != 0) {
+            monitor->buffer_addr = control->buffer_addr;
+            DEBUG_PRINT(monitor, "Buffer address read from control: 0x%08X", control->buffer_addr);
+        }
+        
         /* Validate values */
         if (control->latest_id < DMLOG_INVALID_ID_THRESHOLD && 
-            control->head_offset < monitor->total_size && 
-            control->tail_offset < monitor->total_size) {
+            control->head_offset < control->buffer_size && 
+            control->tail_offset < control->buffer_size) {
             return true;
         }
         
@@ -346,7 +359,7 @@ static bool read_entry_at_offset(dmlog_monitor_t* monitor, dmlog_index_t offset,
                                  log_entry_t* entry) {
     const int max_retries = 3;
     const int header_size = 10; /* magic(4) + id(4) + length(2) */
-    uint32_t buffer_start = monitor->ring_addr + monitor->ring_control_size;
+    uint32_t buffer_start = monitor->buffer_addr;  /* Use the buffer address read from control */
     uint32_t entry_addr = buffer_start + offset;
     
     for (int attempt = 0; attempt < max_retries; attempt++) {
@@ -480,6 +493,12 @@ static void monitor_loop(dmlog_monitor_t* monitor, int interval_us) {
         return;
     }
     
+    /* Update total_size from control structure */
+    monitor->total_size = control.buffer_size;
+    
+    printf("Buffer address: 0x%08X, size: %u bytes\n", 
+           monitor->buffer_addr, monitor->total_size);
+    
     monitor->last_id = control.latest_id;
     printf("Starting from log ID: %u, head: %u, tail: %u\n", 
            monitor->last_id, control.head_offset, control.tail_offset);
@@ -517,7 +536,11 @@ static void monitor_loop(dmlog_monitor_t* monitor, int interval_us) {
     /* Main monitoring loop */
     while (g_running) {
         if (!read_ring_control(monitor, &control)) {
-            usleep(interval_us);
+            /* Sleep in smaller chunks to be more responsive to Ctrl+C */
+            for (int i = 0; i < interval_us / 10000 && g_running; i++) {
+                usleep(10000); /* 10ms chunks */
+            }
+            usleep(interval_us % 10000);
             continue;
         }
         
@@ -547,7 +570,13 @@ static void monitor_loop(dmlog_monitor_t* monitor, int interval_us) {
             monitor->last_id = latest_id;
         }
         
-        usleep(interval_us);
+        /* Sleep in smaller chunks to be more responsive to Ctrl+C */
+        for (int i = 0; i < interval_us / 10000 && g_running; i++) {
+            usleep(10000); /* 10ms chunks */
+        }
+        if (g_running) {
+            usleep(interval_us % 10000);
+        }
     }
     
     printf("\n\nMonitoring stopped by user\n");
@@ -580,6 +609,7 @@ int main(int argc, char *argv[]) {
         .client = &client,
         .ring_addr = DEFAULT_RING_ADDR,
         .ring_control_size = RING_CONTROL_READ_SIZE,  /* Use defined constant */
+        .buffer_addr = 0,  /* Will be read from control structure */
         .total_size = DEFAULT_TOTAL_SIZE,
         .max_entry_size = DEFAULT_MAX_ENTRY_SIZE,
         .expected_magic = DMLOG_MAGIC_NUMBER,
