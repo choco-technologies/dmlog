@@ -10,6 +10,11 @@ compile_commands.json
 CTestTestfile.cmake
 _deps
 CMakeUserPresets.json
+build/*
+build-*/
+build_*/
+_codeql_*
+_codeql_build_dir/*
 
 # CLion
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
