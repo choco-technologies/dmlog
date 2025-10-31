@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include "dmod.h"
 
 #ifndef DMLOG_MAGIC_NUMBER
 #   define DMLOG_MAGIC_NUMBER      0x444D4C4F 
@@ -78,19 +79,19 @@ typedef struct
 
 typedef struct dmlog_ctx* dmlog_ctx_t;
 
-extern dmlog_ctx_t      dmlog_create            (void* buffer, dmlog_index_t buffer_size);
-extern void             dmlog_destroy           (dmlog_ctx_t ctx);
-extern bool             dmlog_is_valid          (dmlog_ctx_t ctx);
-extern dmlog_index_t    dmlog_left_entry_space  (dmlog_ctx_t ctx);
-extern bool             dmlog_putc              (dmlog_ctx_t ctx, char c);
-extern bool             dmlog_puts              (dmlog_ctx_t ctx, const char* s);
-extern bool             dmlog_putsn             (dmlog_ctx_t ctx, const char* s, size_t n);
-extern dmlog_index_t    dmlog_get_free_space    (dmlog_ctx_t ctx);
-extern bool             dmlog_flush             (dmlog_ctx_t ctx);
-extern bool             dmlog_read_next         (dmlog_ctx_t ctx);
-extern const char*      dmlog_get_ref_buffer    (dmlog_ctx_t ctx);
-extern char             dmlog_getc              (dmlog_ctx_t ctx);
-extern bool             dmlog_gets              (dmlog_ctx_t ctx, char* s, size_t max_len);
-extern void             dmlog_clear             (dmlog_ctx_t ctx);
+DMOD_BUILTIN_API(dmlog, 1.0, dmlog_ctx_t,      _create,            (void* buffer, dmlog_index_t buffer_size) );
+DMOD_BUILTIN_API(dmlog, 1.0, void,             _destroy,           (dmlog_ctx_t ctx) );
+DMOD_BUILTIN_API(dmlog, 1.0, bool,             _is_valid,          (dmlog_ctx_t ctx) );
+DMOD_BUILTIN_API(dmlog, 1.0, dmlog_index_t,    _left_entry_space,  (dmlog_ctx_t ctx) );
+DMOD_BUILTIN_API(dmlog, 1.0, bool,             _putc,              (dmlog_ctx_t ctx, char c) );
+DMOD_BUILTIN_API(dmlog, 1.0, bool,             _puts,              (dmlog_ctx_t ctx, const char* s) );
+DMOD_BUILTIN_API(dmlog, 1.0, bool,             _putsn,             (dmlog_ctx_t ctx, const char* s, size_t n) );
+DMOD_BUILTIN_API(dmlog, 1.0, dmlog_index_t,    _get_free_space,    (dmlog_ctx_t ctx) );
+DMOD_BUILTIN_API(dmlog, 1.0, bool,             _flush,             (dmlog_ctx_t ctx) );
+DMOD_BUILTIN_API(dmlog, 1.0, bool,             _read_next,         (dmlog_ctx_t ctx) );
+DMOD_BUILTIN_API(dmlog, 1.0, const char*,      _get_ref_buffer,    (dmlog_ctx_t ctx) );
+DMOD_BUILTIN_API(dmlog, 1.0, char,             _getc,              (dmlog_ctx_t ctx) );
+DMOD_BUILTIN_API(dmlog, 1.0, bool,             _gets,              (dmlog_ctx_t ctx, char* s, size_t max_len) );
+DMOD_BUILTIN_API(dmlog, 1.0, void,             _clear,             (dmlog_ctx_t ctx) );
 
 #endif // DMLOG_H
