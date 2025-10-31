@@ -59,3 +59,8 @@ target_link_libraries(${MODULE_NAME}
     )
 
 create_library_makefile(${MODULE_NAME})
+
+# ======================================================================
+#               Tools
+# ======================================================================    
+add_subdirectory(tools)
