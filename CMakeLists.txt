@@ -64,3 +64,13 @@ create_library_makefile(${MODULE_NAME})
 #               Tools
 # ======================================================================    
 add_subdirectory(tools)
+
+# ======================================================================
+#               Tests
+# ======================================================================
+option(BUILD_TESTS "Build tests" ON)
+
+if(BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
+endif()
