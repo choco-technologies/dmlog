@@ -476,6 +476,24 @@ bool dmlog_read_next(dmlog_ctx_t ctx)
 }
 
 /**
+ * @brief Get a reference to the current log entry buffer.
+ * 
+ * @param ctx DMLoG context.
+ * @return const char* Pointer to the current log entry buffer.
+ */
+const char *dmlog_get_ref_buffer(dmlog_ctx_t ctx)
+{
+    const char* result = NULL;
+    Dmod_EnterCritical();
+    if(dmlog_is_valid(ctx))
+    {
+        result = ctx->read_buffer;
+    }
+    Dmod_ExitCritical();
+    return result;
+}
+
+/**
  * @brief Get a single character from the current log entry.
  * 
  * @param ctx DMLoG context.

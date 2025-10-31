@@ -88,6 +88,7 @@ extern bool             dmlog_putsn             (dmlog_ctx_t ctx, const char* s,
 extern dmlog_index_t    dmlog_get_free_space    (dmlog_ctx_t ctx);
 extern bool             dmlog_flush             (dmlog_ctx_t ctx);
 extern bool             dmlog_read_next         (dmlog_ctx_t ctx);
+extern const char*      dmlog_get_ref_buffer    (dmlog_ctx_t ctx);
 extern char             dmlog_getc              (dmlog_ctx_t ctx);
 extern bool             dmlog_gets              (dmlog_ctx_t ctx, char* s, size_t max_len);
 extern void             dmlog_clear             (dmlog_ctx_t ctx);
