@@ -10,6 +10,7 @@ struct dmlog_ctx
     char read_buffer[DMOD_LOG_MAX_ENTRY_SIZE];
     dmlog_index_t read_entry_offset;
     dmlog_entry_id_t next_id;
+    size_t lock_recursion;
     uint8_t buffer[4];
 };
 
@@ -21,6 +22,7 @@ struct dmlog_ctx
 static void context_lock(dmlog_ctx_t ctx)
 {
     ctx->ring.flags |= DMLOG_FLAG_BUSY;
+    ctx->lock_recursion++;
 }
 
 /**
@@ -30,7 +32,31 @@ static void context_lock(dmlog_ctx_t ctx)
  */
 static void context_unlock(dmlog_ctx_t ctx)
 {   
-    ctx->ring.flags &= ~DMLOG_FLAG_BUSY;
+    if(ctx->lock_recursion > 0)
+    {
+        ctx->lock_recursion--;
+    }
+    if(ctx->lock_recursion == 0)
+    {
+        ctx->ring.flags &= ~DMLOG_FLAG_BUSY;
+    }
+}
+
+/**
+ * @brief Wait until the DMLoG context is unlocked.
+ * 
+ * @param ctx DMLoG context.
+ */
+static void wait_for_unlock(dmlog_ctx_t ctx)
+{
+    if(ctx->lock_recursion > 0)
+    {
+        return; // Already locked by this context
+    }
+    while(ctx->ring.flags & DMLOG_FLAG_BUSY)
+    {
+        // Busy wait
+    }
 }
 
 /**
@@ -222,6 +248,7 @@ dmlog_ctx_t dmlog_create(void *buffer, dmlog_index_t buffer_size)
     ctx->write_entry_offset     = 0;
     ctx->read_entry_offset      = 0;
     ctx->next_id                = 0;
+    ctx->lock_recursion         = 0;
     Dmod_ExitCritical();
 
     return ctx;
@@ -353,7 +380,6 @@ bool dmlog_putsn(dmlog_ctx_t ctx, const char *s, size_t n)
     Dmod_EnterCritical();
     if(dmlog_is_valid(ctx))
     {
-        context_lock(ctx);
         for(size_t i = 0; i < n; i++)
         {
             if(s[i] == '\0')
@@ -366,7 +392,6 @@ bool dmlog_putsn(dmlog_ctx_t ctx, const char *s, size_t n)
             }
         }
         result = dmlog_flush(ctx);
-        context_unlock(ctx);
     }
     Dmod_ExitCritical();
     return result;
@@ -402,7 +427,6 @@ bool dmlog_flush(dmlog_ctx_t ctx)
     Dmod_EnterCritical();
     if(dmlog_is_valid(ctx))
     {
-        context_lock(ctx);
         dmlog_index_t required_size = sizeof(dmlog_entry_t) + ctx->write_entry_offset;
         while(get_free_space(ctx) < required_size)
         {
@@ -414,6 +438,7 @@ bool dmlog_flush(dmlog_ctx_t ctx)
                 break;
             }
         }
+        context_lock(ctx);
         dmlog_entry_t entry;
         entry.magic = DMLOG_ENTRY_MAGIC_NUMBER;
         entry.id = ctx->next_id++;
@@ -439,6 +464,7 @@ bool dmlog_read_next(dmlog_ctx_t ctx)
     Dmod_EnterCritical();
     if(dmlog_is_valid(ctx))
     {
+        wait_for_unlock(ctx);
         context_lock(ctx);
         dmlog_entry_t old_entry;
         result = read_entry_from_tail(ctx, &old_entry, ctx->read_buffer, DMOD_LOG_MAX_ENTRY_SIZE);
