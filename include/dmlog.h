@@ -26,6 +26,11 @@
 #define DMLOG_FLAG_CLEAR_BUFFER  0x00000001  /* Set to clear buffer, cleared after execution */
 #define DMLOG_FLAG_BUSY          0x00000002  /* Buffer busy flag - set during write operations */
 
+/* Type definition for log entry IDs */
+typedef uint32_t dmlog_entry_id_t;
+
+/* Type definition for log entry indices */
+typedef uint32_t dmlog_index_t;
 
 /**
  * @brief Log entry header structure
@@ -39,10 +44,10 @@
  */
 typedef struct 
 {
-    volatile uint32_t magic;
-    volatile uint32_t id;
-    volatile uint16_t length;
-} DMLOG_PACKED dmlog_entry_header_t;
+    volatile uint32_t           magic;
+    volatile dmlog_entry_id_t   id;
+    volatile uint16_t           length;
+} dmlog_entry_t;
 
 
 /**
@@ -62,25 +67,29 @@ typedef struct
  */
 typedef struct 
 {
-    volatile uint32_t magic;
-    volatile uint32_t latest_id;
-    volatile uint32_t flags;
-    volatile uint32_t head_offset;
-    volatile uint32_t tail_offset;
-    volatile uint32_t buffer_size;
-    volatile uint8_t* buffer;
+    volatile uint32_t           magic;
+    volatile dmlog_entry_id_t   latest_id;
+    volatile uint32_t           flags;
+    volatile dmlog_index_t      head_offset;
+    volatile dmlog_index_t      tail_offset;
+    volatile dmlog_index_t      buffer_size;
+    volatile uint8_t*           buffer;
 } dmlog_ring_t;
 
 typedef struct dmlog_ctx* dmlog_ctx_t;
 
-extern dmlog_ctx_t  dmlog_create    (void* buffer, size_t buffer_size);
-extern void         dmlog_destroy   (dmlog_ctx_t ctx);
-extern bool         dmlog_putc      (dmlog_ctx_t ctx, char c);
-extern bool         dmlog_puts      (dmlog_ctx_t ctx, const char* s);
-extern char         dmlog_getc      (dmlog_ctx_t ctx);
-extern size_t       dmlog_gets      (dmlog_ctx_t ctx, char* s, size_t max_len);
-extern size_t       dmlog_available (dmlog_ctx_t ctx);
-extern size_t       dmlog_used      (dmlog_ctx_t ctx);
-extern void         dmlog_clear     (dmlog_ctx_t ctx);
+extern dmlog_ctx_t      dmlog_create            (void* buffer, dmlog_index_t buffer_size);
+extern void             dmlog_destroy           (dmlog_ctx_t ctx);
+extern bool             dmlog_is_valid          (dmlog_ctx_t ctx);
+extern dmlog_index_t    dmlog_left_entry_space  (dmlog_ctx_t ctx);
+extern bool             dmlog_putc              (dmlog_ctx_t ctx, char c);
+extern bool             dmlog_puts              (dmlog_ctx_t ctx, const char* s);
+extern bool             dmlog_putsn             (dmlog_ctx_t ctx, const char* s, size_t n);
+extern dmlog_index_t    dmlog_get_free_space    (dmlog_ctx_t ctx);
+extern bool             dmlog_flush             (dmlog_ctx_t ctx);
+extern bool             dmlog_read_next         (dmlog_ctx_t ctx);
+extern char             dmlog_getc              (dmlog_ctx_t ctx);
+extern bool             dmlog_gets              (dmlog_ctx_t ctx, char* s, size_t max_len);
+extern void             dmlog_clear             (dmlog_ctx_t ctx);
 
 #endif // DMLOG_H
