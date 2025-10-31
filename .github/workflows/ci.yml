@@ -1,0 +1,107 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop, copilot/*, feature/* ]
+  pull_request:
+    branches: [ main, develop, feature/* ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    container:
+      image: chocotechnologies/dmod:1.0.2
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    
+    - name: Install dependencies
+      run: |
+        apt-get update
+        apt-get install -y lcov
+    
+    - name: Configure CMake
+      run: |
+        mkdir -p build
+        cd build
+        cmake .. -DCMAKE_BUILD_TYPE=Release
+    
+    - name: Build
+      run: |
+        cd build
+        make -j$(nproc)
+    
+    - name: Run tests
+      run: |
+        cd build
+        ctest --output-on-failure --verbose
+    
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-results
+        path: build/Testing/
+        retention-days: 30
+
+  coverage:
+    runs-on: ubuntu-latest
+    container:
+      image: chocotechnologies/dmod:1.0.2
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    
+    - name: Install dependencies
+      run: |
+        apt-get update
+        apt-get install -y lcov
+    
+    - name: Configure CMake with coverage
+      run: |
+        mkdir -p build
+        cd build
+        cmake .. -DCMAKE_BUILD_TYPE=Debug -DENABLE_COVERAGE=ON
+    
+    - name: Build with coverage
+      run: |
+        cd build
+        make -j$(nproc)
+    
+    - name: Run tests
+      run: |
+        cd build
+        ctest --output-on-failure
+    
+    - name: Generate coverage report
+      run: |
+        cd build
+        lcov --directory . --capture --output-file coverage.info
+        lcov --remove coverage.info '/usr/*' '*/build/_deps/*' --output-file coverage_filtered.info --ignore-errors unused
+        lcov --list coverage_filtered.info
+    
+    - name: Generate HTML coverage report
+      run: |
+        cd build
+        mkdir -p coverage_html
+        genhtml coverage_filtered.info --output-directory coverage_html
+    
+    - name: Upload coverage report
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-report
+        path: build/coverage_html/
+        retention-days: 30
+    
+    - name: Coverage summary
+      run: |
+        cd build
+        echo "## Coverage Summary" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        lcov --summary coverage_filtered.info 2>&1 | tee -a $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
