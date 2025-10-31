@@ -54,13 +54,15 @@ typedef struct {
     bool debug;
 } dmlog_monitor_t;
 
-/* Ring control structure (matching dmlog_ring_t layout) */
+/* Ring control structure (matching dmlog_ring_t memory layout for reading) */
 typedef struct {
     uint32_t magic;
     dmlog_entry_id_t latest_id;
     uint32_t flags;
     dmlog_index_t head_offset;
     dmlog_index_t tail_offset;
+    /* Note: buffer_size and buffer pointer are not read from memory,
+     * as we only need the control fields for monitoring */
 } ring_control_t;
 
 /* Log entry structure */
@@ -92,39 +94,57 @@ static void signal_handler(int signum) {
 static bool openocd_connect(openocd_client_t* client) {
     struct sockaddr_in serv_addr;
     char initial_response[4096];
-    struct hostent* host_entry;
+    struct addrinfo hints, *result, *rp;
+    int addr_result;
     
-    client->sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (client->sockfd < 0) {
-        fprintf(stderr, "Error creating socket: %s\n", strerror(errno));
+    /* Setup hints for getaddrinfo */
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_protocol = IPPROTO_TCP;
+    
+    /* Resolve hostname */
+    char port_str[16];
+    snprintf(port_str, sizeof(port_str), "%d", client->port);
+    addr_result = getaddrinfo(client->host, port_str, &hints, &result);
+    
+    if (addr_result != 0) {
+        fprintf(stderr, "Failed to resolve hostname %s: %s\n", 
+                client->host, gai_strerror(addr_result));
         return false;
     }
     
-    memset(&serv_addr, 0, sizeof(serv_addr));
-    serv_addr.sin_family = AF_INET;
-    serv_addr.sin_port = htons(client->port);
-    
-    /* Try to parse as IP address first */
-    if (inet_pton(AF_INET, client->host, &serv_addr.sin_addr) <= 0) {
-        /* Not a valid IP address, try to resolve hostname */
-        host_entry = gethostbyname(client->host);
-        if (host_entry == NULL) {
-            fprintf(stderr, "Failed to resolve hostname: %s\n", client->host);
-            close(client->sockfd);
-            return false;
+    /* Try each address until we successfully connect */
+    for (rp = result; rp != NULL; rp = rp->ai_next) {
+        client->sockfd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+        if (client->sockfd < 0) {
+            continue;
         }
-        memcpy(&serv_addr.sin_addr, host_entry->h_addr_list[0], host_entry->h_length);
+        
+        if (connect(client->sockfd, rp->ai_addr, rp->ai_addrlen) == 0) {
+            break; /* Success */
+        }
+        
+        close(client->sockfd);
+        client->sockfd = -1;
     }
     
-    if (connect(client->sockfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) < 0) {
+    freeaddrinfo(result);
+    
+    if (client->sockfd < 0) {
         fprintf(stderr, "Failed to connect to OpenOCD at %s:%d: %s\n", 
                 client->host, client->port, strerror(errno));
-        close(client->sockfd);
         return false;
     }
     
     /* Read and discard initial prompt */
-    recv(client->sockfd, initial_response, sizeof(initial_response), 0);
+    ssize_t received = recv(client->sockfd, initial_response, sizeof(initial_response), 0);
+    if (received < 0) {
+        fprintf(stderr, "Error receiving initial response: %s\n", strerror(errno));
+        close(client->sockfd);
+        client->sockfd = -1;
+        return false;
+    }
     
     return true;
 }
@@ -147,13 +167,20 @@ static char* openocd_send_command(openocd_client_t* client, const char* cmd) {
     memset(response, 0, sizeof(response));
     while (total_received < RESPONSE_BUFFER_SIZE - 1) {
         ssize_t received = recv(client->sockfd, chunk, RECV_CHUNK_SIZE - 1, 0);
-        if (received <= 0) break;
+        if (received < 0) {
+            fprintf(stderr, "Error receiving response: %s\n", strerror(errno));
+            return NULL;
+        } else if (received == 0) {
+            /* Connection closed */
+            fprintf(stderr, "Connection closed by OpenOCD\n");
+            return NULL;
+        }
         
         chunk[received] = '\0';
         
         /* Copy to response buffer */
         int space_left = RESPONSE_BUFFER_SIZE - total_received - 1;
-        int to_copy = (received < space_left) ? received : space_left;
+        int to_copy = (received < space_left) ? (int)received : space_left;
         memcpy(response + total_received, chunk, to_copy);
         total_received += to_copy;
         response[total_received] = '\0';
@@ -225,8 +252,8 @@ static uint8_t* openocd_read_memory(openocd_client_t* client, uint32_t address,
     }
     
     /* Convert words to bytes (little endian) */
-    int byte_count = 0;
-    for (int i = 0; i < word_count; i++) {
+    size_t byte_count = 0;
+    for (int i = 0; i < word_count && byte_count < sizeof(data) - 4; i++) {
         data[byte_count++] = (words[i] >> 0) & 0xFF;
         data[byte_count++] = (words[i] >> 8) & 0xFF;
         data[byte_count++] = (words[i] >> 16) & 0xFF;
@@ -234,9 +261,9 @@ static uint8_t* openocd_read_memory(openocd_client_t* client, uint32_t address,
     }
     
     /* Check if we have enough data */
-    if (byte_count < (int)(alignment_offset + size)) {
+    if (byte_count < alignment_offset + size) {
         if (debug) {
-            fprintf(stderr, "Not enough data: got %d bytes, need %u bytes\n", 
+            fprintf(stderr, "Not enough data: got %zu bytes, need %u bytes\n", 
                     byte_count, alignment_offset + size);
         }
         return NULL;
@@ -542,7 +569,7 @@ int main(int argc, char *argv[]) {
     dmlog_monitor_t monitor = {
         .client = &client,
         .ring_addr = DEFAULT_RING_ADDR,
-        .ring_control_size = 20, /* magic(4) + latest_id(4) + flags(4) + head(4) + tail(4) */
+        .ring_control_size = sizeof(ring_control_t), /* Use sizeof for consistency */
         .total_size = DEFAULT_TOTAL_SIZE,
         .max_entry_size = DEFAULT_MAX_ENTRY_SIZE,
         .expected_magic = DMLOG_MAGIC_NUMBER,
@@ -552,7 +579,7 @@ int main(int argc, char *argv[]) {
         .debug = false
     };
     
-    int interval_us = DEFAULT_INTERVAL;
+    double interval_sec = 0.1;  /* Default interval in seconds */
     
     /* Parse command line arguments */
     for (int i = 1; i < argc; i++) {
@@ -567,8 +594,11 @@ int main(int argc, char *argv[]) {
         } else if (strcmp(argv[i], "--max-entry") == 0 && i + 1 < argc) {
             monitor.max_entry_size = (uint32_t)atoi(argv[++i]);
         } else if (strcmp(argv[i], "--interval") == 0 && i + 1 < argc) {
-            double interval_sec = atof(argv[++i]);
-            interval_us = (int)(interval_sec * 1000000);
+            interval_sec = atof(argv[++i]);
+            if (interval_sec < 0.001) {
+                fprintf(stderr, "Warning: Interval too small, setting to 0.001 seconds\n");
+                interval_sec = 0.001;
+            }
         } else if (strcmp(argv[i], "--max-startup") == 0 && i + 1 < argc) {
             monitor.max_startup_entries = (uint32_t)atoi(argv[++i]);
         } else if (strcmp(argv[i], "--debug") == 0) {
@@ -586,6 +616,9 @@ int main(int argc, char *argv[]) {
     /* Setup signal handlers */
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
+    
+    /* Convert interval to microseconds */
+    int interval_us = (int)(interval_sec * 1000000.0);
     
     /* Connect to OpenOCD */
     printf("Connecting to OpenOCD at %s:%d...\n", client.host, client.port);
