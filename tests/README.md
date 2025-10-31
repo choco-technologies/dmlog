@@ -21,7 +21,21 @@ ctest --output-on-failure
 ```bash
 ./tests/test_dmlog_unit
 ./tests/test_simple
+./tests/test_benchmark
 ```
+
+### Run benchmark test only
+```bash
+./tests/test_benchmark
+```
+
+This will display performance metrics including:
+- Time to write 3000 log messages
+- Throughput in logs/second
+- Average time per log entry
+- Performance with different message sizes
+- Read performance metrics
+- Buffer wraparound performance
 
 ## Code Coverage
 
@@ -62,6 +76,11 @@ The `make coverage` command will also print a summary to the console showing lin
   - Stress testing
   - Maximum entry size handling
   - Invalid context operations
+- **test_benchmark.c**: Performance benchmarks including:
+  - 3000 log messages write performance test
+  - Varying message size benchmarks (small, medium, large)
+  - Read performance measurements
+  - Buffer wraparound performance under heavy load
 
 ## Coverage Goal
 

@@ -40,8 +40,26 @@ target_include_directories(test_simple
         ${CMAKE_SOURCE_DIR}/include
 )
 
+# =====================================================================
+#               Test: Benchmark Test
+# =====================================================================
+add_executable(test_benchmark test_benchmark.c)
+target_link_libraries(test_benchmark 
+    PRIVATE 
+        dmlog
+        dmod_system
+        dmod_common
+        dmod_fastlz
+        dmod_inc
+)
+target_include_directories(test_benchmark
+    PRIVATE
+        ${CMAKE_SOURCE_DIR}/include
+)
+
 add_test(NAME dmlog_unit   COMMAND test_dmlog_unit)
 add_test(NAME simple_test  COMMAND test_simple)
+add_test(NAME benchmark    COMMAND test_benchmark)
 
 # =====================================================================
 #               Coverage Support (optional)
@@ -62,6 +80,9 @@ if(ENABLE_COVERAGE)
         
         target_compile_options(test_simple PRIVATE --coverage -fprofile-arcs -ftest-coverage)
         target_link_options(test_simple PRIVATE --coverage)
+        
+        target_compile_options(test_benchmark PRIVATE --coverage -fprofile-arcs -ftest-coverage)
+        target_link_options(test_benchmark PRIVATE --coverage)
         
         # Add custom target for generating coverage report
         find_program(GCOV gcov)
