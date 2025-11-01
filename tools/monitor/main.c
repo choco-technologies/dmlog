@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include "dmlog.h"
 #include "openocd.h"
+#include "trace.h"
 
 #ifndef DMLOG_VERSION
 #   define DMLOG_VERSION "unknown"
@@ -46,7 +47,7 @@ int main(int argc, char *argv[])
         }
         else
         {
-            printf("Unknown option: %s\n", argv[i]);
+            TRACE_ERROR("Unknown option: %s\n", argv[i]);
             usage(argv[0]);
             return 1;
         }
@@ -55,13 +56,13 @@ int main(int argc, char *argv[])
     int socket = openocd_connect(&openocd_addr);
     if(socket < 0)
     {
-        fprintf(stderr, "Failed to connect to OpenOCD at %s:%d\n", openocd_addr.host, openocd_addr.port);
+        TRACE_ERROR("Failed to connect to OpenOCD at %s:%d\n", openocd_addr.host, openocd_addr.port);
         return 1;
     }
-    printf("Connected to OpenOCD at %s:%d\n", openocd_addr.host, openocd_addr.port);
+    TRACE_INFO("Connected to OpenOCD at %s:%d\n", openocd_addr.host, openocd_addr.port);
 
     uint8_t buffer[256];
-    openocd_read_memory(socket, 0x20000000, buffer, sizeof(buffer)); 
+    openocd_read_memory(socket, 0x20010000, buffer, sizeof(buffer)); 
 
     uint32_t* words = (uint32_t*)buffer;
     for(int i = 0; i < (sizeof(buffer) / sizeof(uint32_t)); i++)

@@ -2,6 +2,7 @@
 #define _POSIX_C_SOURCE 200112L
 
 #include "openocd.h"
+#include "trace.h"
 #include <stdio.h>
 #include <stdint.h>
 #include <unistd.h>
@@ -35,7 +36,7 @@ static bool ishexchar(char c)
  */
 static void print_response(const uint8_t *buffer, ssize_t n)
 {
-    printf("\tRECV < ");
+    TRACE_VERBOSE("\tRECV < ");
     for(ssize_t i = 0; i < n; i++)
     {
         if(buffer[i] == '\r')
@@ -44,20 +45,20 @@ static void print_response(const uint8_t *buffer, ssize_t n)
         }
         else if(buffer[i] == '\n')
         {
-            putchar(buffer[i]);
-            printf("\tRECV < ");
+            TRACE_VERBOSE("%c", buffer[i]);
+            TRACE_VERBOSE("\tRECV < ");
             continue;
         }
         else if(isprint(buffer[i]))
         {
-            putchar(buffer[i]);
+            TRACE_VERBOSE("%c", buffer[i]);
         }
         else
         {
-            printf("%02x ", buffer[i]);
+            TRACE_VERBOSE("%02x ", buffer[i]);
         }
     }
-    putchar('\n');
+    TRACE_VERBOSE("\n");
 }
 
 /**
@@ -67,7 +68,7 @@ static void print_response(const uint8_t *buffer, ssize_t n)
  */
 static void print_command(const char *cmd)
 {
-    printf("\tSEND > %s\n", cmd);
+    TRACE_VERBOSE("\tSEND > %s\n", cmd);
 }
 
 /**
@@ -125,14 +126,14 @@ static bool parse_memory_line(const char *line, uint8_t *buffer, size_t *offset,
         uint32_t word = 0;
         if(sscanf(ptr, "%8x", &word) != 1)
         {
-            printf("Failed to parse word in memory line\n");
+            TRACE_ERROR("Failed to parse word in memory line\n");
             return false;
         }
 
         if(*offset + 4 > max_length)
         {
-            printf("Buffer overflow while parsing memory line. Offset: %lu max: %lu\n", *offset, max_length);
-            printf("current line: %s\n", ptr);
+            TRACE_ERROR("Buffer overflow while parsing memory line. Offset: %lu max: %lu\n", *offset, max_length);
+            TRACE_ERROR("current line: %s\n", ptr);
             return false;
         }
 
@@ -193,7 +194,7 @@ int openocd_connect(opencd_addr_t *addr)
     }
 
     freeaddrinfo(res);
-    fprintf(stderr, "Failed to connect to %s:%s\n", addr->host, port_str);
+    TRACE_ERROR("Failed to connect to %s:%s\n", addr->host, port_str);
 
     return -1;
 }
@@ -210,10 +211,10 @@ int openocd_read_welcome(int socket)
     ssize_t n = recv(socket, buffer, sizeof(buffer) - 1, 0);
     if(n < 0)
     {
-        fprintf(stderr, "Failed to read welcome message from OpenOCD\n");
+        TRACE_ERROR("Failed to read welcome message from OpenOCD\n");
         return -1;
     }
-    printf("OpenOCD Welcome Message: \n");
+    TRACE_VERBOSE("OpenOCD Welcome Message: \n");
     print_response(buffer, n);
 
     while(!contains_prompt((char *)buffer, n))
@@ -259,7 +260,7 @@ int openocd_send_command(int socket, const char *cmd, char *response, size_t res
     ssize_t sent = send(socket, line, strlen(line), 0);
     if(sent < 0)
     {
-        fprintf(stderr, "Failed to send command to OpenOCD\n");
+        TRACE_ERROR("Failed to send command to OpenOCD\n");
         return -1;
     }
     
@@ -280,7 +281,7 @@ int openocd_send_command(int socket, const char *cmd, char *response, size_t res
         }
         else
         {
-            fprintf(stderr, "Response buffer overflow\n");
+            TRACE_ERROR("Response buffer overflow\n");
             return -1;
         }
     }
