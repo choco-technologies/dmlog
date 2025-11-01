@@ -17,23 +17,29 @@ set(DMLOG_DONT_IMPLEMENT_DMOD_API OFF CACHE BOOL "Do not implement DMOD API in d
 #               Fetch DMOD repository
 # ======================================================================
 include(FetchContent)
-FetchContent_Declare(
-    dmod
-    GIT_REPOSITORY https://github.com/choco-technologies/dmod.git
-    GIT_TAG        develop
-)
 
-# ======================================================================
-#               DMOD Configuration
-# ======================================================================
-set(DMOD_MODE "DMOD_SYSTEM" CACHE STRING "DMOD build mode")
-set(DMOD_BUILD_TESTS OFF CACHE BOOL "Build tests")
-set(DMOD_BUILD_EXAMPLES OFF CACHE BOOL "Build examples")
-set(DMOD_BUILD_TOOLS OFF CACHE BOOL "Build tools")
-set(DMOD_BUILD_TEMPLATES OFF CACHE BOOL "Build templates")
+# Only fetch and build dmod if it's not already available as a target
+if(NOT TARGET dmod_inc)
+    FetchContent_Declare(
+        dmod
+        GIT_REPOSITORY https://github.com/choco-technologies/dmod.git
+        GIT_TAG        develop
+    )
 
-FetchContent_MakeAvailable(dmod)
-set(DMOD_DIR ${dmod_SOURCE_DIR} CACHE PATH "DMOD source directory" FORCE)
+    # ======================================================================
+    #               DMOD Configuration
+    # ======================================================================
+    set(DMOD_MODE "DMOD_SYSTEM" CACHE STRING "DMOD build mode")
+    set(DMOD_BUILD_TESTS OFF CACHE BOOL "Build tests")
+    set(DMOD_BUILD_EXAMPLES OFF CACHE BOOL "Build examples")
+    set(DMOD_BUILD_TOOLS OFF CACHE BOOL "Build tools")
+    set(DMOD_BUILD_TEMPLATES OFF CACHE BOOL "Build templates")
+
+    FetchContent_MakeAvailable(dmod)
+    set(DMOD_DIR ${dmod_SOURCE_DIR} CACHE PATH "DMOD source directory" FORCE)
+else()
+    message(STATUS "dmod target already exists, skipping FetchContent")
+endif()
 
 # ======================================================================
 #               DMOD Heap Library
