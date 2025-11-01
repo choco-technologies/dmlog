@@ -27,7 +27,7 @@ jobs:
       run: |
         mkdir -p build
         cd build
-        cmake .. -DCMAKE_BUILD_TYPE=Release
+        cmake .. -DCMAKE_BUILD_TYPE=Release -DDMLOG_BUILD_TESTS=ON -DDMLOG_BUILD_TOOLS=ON
     
     - name: Build
       run: |
@@ -66,7 +66,7 @@ jobs:
       run: |
         mkdir -p build
         cd build
-        cmake .. -DCMAKE_BUILD_TYPE=Debug -DENABLE_COVERAGE=ON
+        cmake .. -DCMAKE_BUILD_TYPE=Debug -DENABLE_COVERAGE=ON -DDMLOG_BUILD_TESTS=ON -DDMLOG_BUILD_TOOLS=ON
     
     - name: Build with coverage
       run: |

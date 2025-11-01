@@ -69,17 +69,17 @@ create_library_makefile(${MODULE_NAME})
 # ======================================================================
 #               Tools
 # ======================================================================    
-option(BUILD_TOOLS "Build tools" OFF)
-if(BUILD_TOOLS)
+option(DMLOG_BUILD_TOOLS "Build tools" OFF)
+if(DMLOG_BUILD_TOOLS)
     add_subdirectory(tools)
 endif()
 
 # ======================================================================
 #               Tests
 # ======================================================================
-option(BUILD_TESTS "Build tests" ON)
+option(DMLOG_BUILD_TESTS "Build tests" OFF)
 
-if(BUILD_TESTS)
+if(DMLOG_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
 endif()
