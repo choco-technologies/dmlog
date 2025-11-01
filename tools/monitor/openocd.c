@@ -14,6 +14,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <stdbool.h>
+#include <stdlib.h>
 
 /**
  * @brief Check if character is a hexadecimal digit
@@ -187,6 +188,7 @@ int openocd_connect(opencd_addr_t *addr)
                 close(sock);
                 return -1;
             }
+            TRACE_INFO("Connected to OpenOCD at %s:%d\n", addr->host, addr->port);
             return sock;
         }
 
@@ -290,13 +292,31 @@ int openocd_send_command(int socket, const char *cmd, char *response, size_t res
     return 0;
 }
 
-int openocd_read_memory(int socket, uint32_t address, uint8_t *buffer, size_t length)
+/**
+ * @brief Read memory from target via OpenOCD
+ * 
+ * @param socket Socket file descriptor
+ * @param address Memory address to read from
+ * @param buffer Buffer to store read data
+ * @param length Number of bytes to read
+ * @return int 0 on success, -1 on failure
+ */
+int openocd_read_memory(int socket, uint32_t address, void *buffer, size_t length)
 {
     char cmd[64];
     snprintf(cmd, sizeof(cmd), "mdw 0x%08X %zu", address, length / 4);
-    char response[1024] = {0};
-    if(openocd_send_command(socket, cmd, response, sizeof(response)) < 0)
+    size_t response_size = length * 5 + 128;
+    char* response = malloc(response_size); // Allocate enough space for response
+    if(response == NULL)
     {
+        TRACE_ERROR("Failed to allocate memory for response\n");
+        return -1;
+    }
+    memset(response, 0, response_size);
+
+    if(openocd_send_command(socket, cmd, response, response_size) < 0)
+    {
+        free(response);
         return -1;
     }
 
@@ -322,5 +342,6 @@ int openocd_read_memory(int socket, uint32_t address, uint8_t *buffer, size_t le
         }
     }
 
+    free(response);
     return 0;
 }

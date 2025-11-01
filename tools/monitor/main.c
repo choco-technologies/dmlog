@@ -2,7 +2,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include "dmlog.h"
-#include "openocd.h"
+#include "monitor.h"
 #include "trace.h"
 
 #ifndef DMLOG_VERSION
@@ -18,10 +18,12 @@ void usage(const char *progname)
     printf("  --host        OpenOCD IP address (default: localhost)\n");
     printf("  --port        OpenOCD port (default: 4444)\n");
     printf("  --addr        Address of the ring buffer\n");
+    printf("  --search      Search for the ring buffer in memory\n");
 }
 
 int main(int argc, char *argv[])
 {
+    uint32_t ring_buffer_address = 0x20010000; // Default address
     opencd_addr_t openocd_addr;
     strncpy(openocd_addr.host, OPENOCD_DEFAULT_HOST, sizeof(openocd_addr.host));
     openocd_addr.port = OPENOCD_DEFAULT_PORT;
@@ -45,6 +47,10 @@ int main(int argc, char *argv[])
         {
             openocd_addr.port = atoi(argv[++i]);
         }
+        else if(strcmp(argv[i], "--addr") == 0 && i + 1 < argc)
+        {
+            ring_buffer_address = (uint32_t)strtoul(argv[++i], NULL, 0);
+        }
         else
         {
             TRACE_ERROR("Unknown option: %s\n", argv[i]);
@@ -53,29 +59,17 @@ int main(int argc, char *argv[])
         }
     }
 
-    int socket = openocd_connect(&openocd_addr);
-    if(socket < 0)
+    monitor_ctx_t *ctx = monitor_connect(&openocd_addr, ring_buffer_address);
+    if(ctx == NULL)
     {
-        TRACE_ERROR("Failed to connect to OpenOCD at %s:%d\n", openocd_addr.host, openocd_addr.port);
+        TRACE_ERROR("Failed to connect to monitor\n");
         return 1;
     }
-    TRACE_INFO("Connected to OpenOCD at %s:%d\n", openocd_addr.host, openocd_addr.port);
 
-    uint8_t buffer[256];
-    openocd_read_memory(socket, 0x20010000, buffer, sizeof(buffer)); 
+    monitor_wait_until_busy(ctx);
 
-    uint32_t* words = (uint32_t*)buffer;
-    for(int i = 0; i < (sizeof(buffer) / sizeof(uint32_t)); i++)
-    {
-        printf("%08X ", words[i]);
-        if((i + 1) % 8 == 0)
-        {
-            printf("\n");
-        }
-    }
-    printf("\n");
-
-    openocd_disconnect(socket);
+    // Main monitoring loop would go here
+    monitor_disconnect(ctx);
 
     return 0;
 }
