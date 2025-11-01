@@ -69,7 +69,10 @@ create_library_makefile(${MODULE_NAME})
 # ======================================================================
 #               Tools
 # ======================================================================    
-add_subdirectory(tools)
+option(BUILD_TOOLS "Build tools" OFF)
+if(BUILD_TOOLS)
+    add_subdirectory(tools)
+endif()
 
 # ======================================================================
 #               Tests
