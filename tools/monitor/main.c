@@ -60,6 +60,20 @@ int main(int argc, char *argv[])
     }
     printf("Connected to OpenOCD at %s:%d\n", openocd_addr.host, openocd_addr.port);
 
+    uint8_t buffer[256];
+    openocd_read_memory(socket, 0x20000000, buffer, sizeof(buffer)); 
+
+    uint32_t* words = (uint32_t*)buffer;
+    for(int i = 0; i < (sizeof(buffer) / sizeof(uint32_t)); i++)
+    {
+        printf("%08X ", words[i]);
+        if((i + 1) % 8 == 0)
+        {
+            printf("\n");
+        }
+    }
+    printf("\n");
+
     openocd_disconnect(socket);
 
     return 0;

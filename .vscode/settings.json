@@ -4,6 +4,7 @@
         "netdb.h": "c",
         "inet.h": "c",
         "stdio.h": "c",
-        "types.h": "c"
+        "types.h": "c",
+        "openocd.h": "c"
     }
 }
