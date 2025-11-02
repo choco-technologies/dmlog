@@ -297,7 +297,11 @@ void monitor_run(monitor_ctx_t *ctx, bool show_timestamps, bool blocking_mode)
                 if(!monitor_synchronize(ctx))
                 {
                     TRACE_ERROR("Failed to synchronize monitor context with target dmlog ring buffer\n");
-                    return;
+                    if(!monitor_send_clear_command(ctx))
+                    {
+                        TRACE_ERROR("Failed to send clear command to dmlog ring buffer\n");
+                        return;
+                    }
                 }
             }
             if(ctx->current_entry.id < ctx->last_entry_id)
@@ -381,7 +385,7 @@ bool monitor_send_clear_command(monitor_ctx_t *ctx)
             TRACE_ERROR("Failed to update dmlog ring buffer after sending clear command\n");
             return false;
         }
-        usleep(10000); // Sleep briefly to avoid busy-waiting
+        sleep(1);
     }
 
     TRACE_INFO("Clear command processed successfully\n");
@@ -441,13 +445,13 @@ bool monitor_send_not_busy_command(monitor_ctx_t *ctx)
 bool monitor_synchronize(monitor_ctx_t *ctx)
 {
     TRACE_INFO("Synchronizing monitor context with target dmlog ring buffer\n");
-    if(!monitor_send_clear_command(ctx))
+    if(!monitor_update_ring(ctx))
     {
-        TRACE_ERROR("Failed to send clear command to dmlog ring buffer\n");
+        TRACE_ERROR("Failed to update dmlog ring buffer\n");
         return false;
     }
-    ctx->tail_offset = ctx->ring.tail_offset;
-    ctx->last_entry_id = ctx->ring.latest_id;
+    ctx->tail_offset    = ctx->ring.tail_offset;
+    ctx->last_entry_id  = ctx->ring.latest_id;
 
     return true;
 }
