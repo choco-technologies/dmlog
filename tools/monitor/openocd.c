@@ -193,6 +193,7 @@ static size_t read_line(int socket, char *buffer, size_t max_length)
         if(n <= 0)
         {
             TRACE_ERROR("Failed to read line from OpenOCD\n");
+            sleep(1);
             return -1;
         }
         if(buffer[offset] == '\n' || buffer[offset] == '>')
