@@ -47,7 +47,7 @@ typedef struct
 {
     volatile uint32_t           magic;
     volatile dmlog_entry_id_t   id;
-    volatile uint16_t           length;
+    volatile uint32_t           length;
 } dmlog_entry_t;
 
 

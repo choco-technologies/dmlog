@@ -442,7 +442,7 @@ bool dmlog_flush(dmlog_ctx_t ctx)
         dmlog_entry_t entry;
         entry.magic = DMLOG_ENTRY_MAGIC_NUMBER;
         entry.id = ctx->next_id++;
-        entry.length = (uint16_t)ctx->write_entry_offset;
+        entry.length = (uint32_t)ctx->write_entry_offset;
         result = write_entry_to_head(ctx, &entry, ctx->write_buffer);
         ctx->write_entry_offset = 0;
         ctx->ring.latest_id = entry.id;
