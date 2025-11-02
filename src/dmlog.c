@@ -649,14 +649,14 @@ DMOD_INPUT_API_DECLARATION( Dmod, 1.0, int  ,_Printf, ( const char* Format, ... 
         return -1;
     }
     va_list args;
-    va_start(args, Format);
     char temp_buffer[DMOD_LOG_MAX_ENTRY_SIZE];
+    va_start(args, Format);
     int written = Dmod_VSnPrintf(temp_buffer, sizeof(temp_buffer), Format, args);
     va_end(args);
 
     if(written > 0)
     {
-        dmlog_putsn(ctx, temp_buffer, (size_t)written);
+        dmlog_puts(ctx, temp_buffer);
     }
 
     return written;
