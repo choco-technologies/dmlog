@@ -7,6 +7,7 @@ add_executable(dmlog_monitor
 
 target_link_libraries(dmlog_monitor
     PRIVATE
+        dmod
         dmlog
 )
 

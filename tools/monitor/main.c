@@ -98,7 +98,7 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    monitor_update_entry(ctx);
+    monitor_run(ctx);
 
     // Main monitoring loop would go here
     monitor_disconnect(ctx);

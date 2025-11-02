@@ -72,6 +72,12 @@ bool monitor_update_ring(monitor_ctx_t *ctx)
         TRACE_ERROR("Invalid dmlog ring buffer magic number: 0x%08X\n", ctx->ring.magic);
         return false;
     }
+    dmlog_ctx_t dmlog_ctx = (dmlog_ctx_t)&ctx->ring;
+    TRACE_VERBOSE("Dmlog Ring Buffer: head_offset=%u, tail_offset=%u, buffer_size=%x, buffer_address=%lx\n",
+        ctx->ring.head_offset,
+        ctx->ring.tail_offset,
+        ctx->ring.buffer_size,
+        ctx->ring.buffer);
 
     return true;
 }
@@ -116,7 +122,7 @@ bool monitor_update_entry(monitor_ctx_t *ctx)
 {
     monitor_wait_until_not_busy(ctx);
 
-    uint32_t entry_address = (uint32_t)((uintptr_t)ctx->ring.buffer) + ctx->ring.head_offset;
+    uint32_t entry_address = (uint32_t)((uintptr_t)ctx->ring.buffer) + ctx->ring.tail_offset;
     if(openocd_read_memory(ctx->socket, entry_address, &ctx->current_entry, sizeof(dmlog_entry_t)) < 0)
     {
         TRACE_ERROR("Failed to read dmlog entry from target\n");
@@ -127,6 +133,44 @@ bool monitor_update_entry(monitor_ctx_t *ctx)
         TRACE_ERROR("Invalid dmlog entry magic number: 0x%08X\n", ctx->current_entry.magic);
         return false;
     }
+    if(ctx->current_entry.length > DMOD_LOG_MAX_ENTRY_SIZE)
+    {
+        TRACE_ERROR("Dmlog entry length %u exceeds maximum %u\n", ctx->current_entry.length, DMOD_LOG_MAX_ENTRY_SIZE);
+        return false;
+    }
+    entry_address += sizeof(dmlog_entry_t);
+    if(openocd_read_memory(ctx->socket, entry_address, ctx->entry_buffer, ctx->current_entry.length) < 0)
+    {
+        TRACE_ERROR("Failed to read dmlog entry data from target\n");
+        return false;
+    }
+    ctx->entry_buffer[ctx->current_entry.length] = '\0'; // Null-terminate
+    TRACE_VERBOSE("Dmlog Entry ID: %u, Length: %u\n", ctx->current_entry.id, ctx->current_entry.length);
 
     return true;
+}
+
+/**
+ * @brief Get a pointer to the current dmlog entry buffer
+ * 
+ * @param ctx Pointer to the monitor context
+ * @return const char* Pointer to the current entry buffer
+ */
+const char *monitor_get_entry_buffer(monitor_ctx_t *ctx)
+{
+    return ctx->entry_buffer;
+}
+
+/**
+ * @brief Run the monitor loop (not implemented)
+ * 
+ * @param ctx Pointer to the monitor context
+ */
+void monitor_run(monitor_ctx_t *ctx)
+{
+    const char* entry_data = monitor_get_entry_buffer(ctx);
+    while(monitor_update_entry(ctx))
+    {
+        printf("%s", entry_data);
+    }
 }
