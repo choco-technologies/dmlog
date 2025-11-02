@@ -202,13 +202,12 @@ bool monitor_wait_until_not_busy(monitor_ctx_t *ctx)
 bool monitor_wait_for_new_data(monitor_ctx_t *ctx)
 {
     monitor_wait_until_not_busy(ctx);
-    while(is_buffer_empty(ctx))
+    while(is_buffer_empty(ctx) || ctx->last_entry_id == ctx->ring.latest_id)
     {
         if(!monitor_update_ring(ctx))
         {
             return false;
         }
-        usleep(200000); // Sleep briefly to avoid busy-waiting
     }
     return true;
 }
