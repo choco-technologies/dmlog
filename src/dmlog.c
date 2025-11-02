@@ -91,7 +91,7 @@ static bool read_byte_from_tail(dmlog_ctx_t ctx, void* out_byte)
     bool empty = (ctx->ring.tail_offset == ctx->ring.head_offset);
     if(!empty)
     {
-        *((uint8_t*)out_byte) = ctx->ring.buffer[ctx->ring.tail_offset];
+        *((uint8_t*)out_byte) = ctx->buffer[ctx->ring.tail_offset];
         ctx->ring.tail_offset = (ctx->ring.tail_offset + 1) % ctx->ring.buffer_size;
     }
     return empty;
@@ -112,7 +112,7 @@ static bool write_byte_to_tail(dmlog_ctx_t ctx, uint8_t byte)
         // Buffer full
         return false;
     }
-    ctx->ring.buffer[ctx->ring.head_offset] = byte;
+    ctx->buffer[ctx->ring.head_offset] = byte;
     ctx->ring.head_offset = next_head;
     return true;
 }
@@ -240,7 +240,7 @@ dmlog_ctx_t dmlog_create(void *buffer, dmlog_index_t buffer_size)
     dmlog_index_t control_size  = (dmlog_index_t)((uintptr_t)ctx->buffer - (uintptr_t)ctx);
     ctx->ring.magic             = DMLOG_MAGIC_NUMBER;
     ctx->ring.buffer_size       = buffer_size - control_size;
-    ctx->ring.buffer            = ctx->buffer;
+    ctx->ring.buffer            = (uint64_t)ctx->buffer;
     ctx->ring.head_offset       = 0;
     ctx->ring.tail_offset       = 0;
     ctx->ring.latest_id         = 0;
@@ -574,7 +574,7 @@ void dmlog_clear(dmlog_ctx_t ctx)
         ctx->ring.flags = DMLOG_FLAG_BUSY;
         ctx->ring.head_offset = 0;
         ctx->ring.tail_offset = 0;
-        ctx->ring.buffer = ctx->buffer;
+        ctx->ring.buffer = (uint64_t)ctx->buffer;
         ctx->write_entry_offset = 0;
         ctx->read_entry_offset = 0; 
         ctx->next_id = 0;

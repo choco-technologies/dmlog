@@ -74,7 +74,7 @@ typedef struct
     volatile dmlog_index_t      head_offset;
     volatile dmlog_index_t      tail_offset;
     volatile dmlog_index_t      buffer_size;
-    volatile uint8_t*           buffer;
+    volatile uint64_t           buffer;
 } dmlog_ring_t;
 
 typedef struct dmlog_ctx* dmlog_ctx_t;
