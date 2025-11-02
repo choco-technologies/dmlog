@@ -405,28 +405,24 @@ void monitor_run(monitor_ctx_t *ctx, bool show_timestamps, bool blocking_mode)
         }
         
         // Process all entries in the snapshot using dmlog API
-        char entry_buffer[DMOD_LOG_MAX_ENTRY_SIZE];
         while(dmlog_read_next(local_ctx))
         {
-            if(dmlog_gets(local_ctx, entry_buffer, sizeof(entry_buffer)))
+            const char* entry_data = dmlog_get_ref_buffer(local_ctx);
+            if(entry_data != NULL && strlen(entry_data) > 0)
             {
-                // Only print if we have content
-                if(strlen(entry_buffer) > 0)
+                if(show_timestamps)
                 {
-                    if(show_timestamps)
-                    {
-                        time_t now = time(NULL);
-                        struct tm *local_time = localtime(&now);
-                        printf("[%02d:%02d:%02d] %s", 
-                               local_time->tm_hour, 
-                               local_time->tm_min, 
-                               local_time->tm_sec,
-                               entry_buffer);
-                    }
-                    else
-                    {
-                        printf("%s", entry_buffer);
-                    }
+                    time_t now = time(NULL);
+                    struct tm *local_time = localtime(&now);
+                    printf("[%02d:%02d:%02d] %s", 
+                           local_time->tm_hour, 
+                           local_time->tm_min, 
+                           local_time->tm_sec,
+                           entry_data);
+                }
+                else
+                {
+                    printf("%s", entry_data);
                 }
             }
         }
