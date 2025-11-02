@@ -48,7 +48,7 @@ typedef struct
     volatile uint32_t           magic;
     volatile dmlog_entry_id_t   id;
     volatile uint32_t           length;
-} dmlog_entry_t;
+} DMLOG_PACKED dmlog_entry_t;
 
 
 /**
@@ -75,7 +75,7 @@ typedef struct
     volatile dmlog_index_t      tail_offset;
     volatile dmlog_index_t      buffer_size;
     volatile uint64_t           buffer;
-} dmlog_ring_t;
+} DMLOG_PACKED dmlog_ring_t;
 
 typedef struct dmlog_ctx* dmlog_ctx_t;
 

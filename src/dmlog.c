@@ -11,7 +11,7 @@ struct dmlog_ctx
     char read_buffer[DMOD_LOG_MAX_ENTRY_SIZE];
     dmlog_index_t read_entry_offset;
     dmlog_entry_id_t next_id;
-    size_t lock_recursion;
+    uint32_t lock_recursion;
     uint8_t buffer[4];
 };
 

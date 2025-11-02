@@ -340,13 +340,14 @@ bool monitor_load_snapshot(monitor_ctx_t *ctx, bool blocking_mode)
     }
 
     dmlog_ring_t* ring = (void*)ctx->dmlog_ctx;
-    TRACE_INFO("Dmlog Snapshot: head_offset=%u, tail_offset=%u, buffer_size=%x latest_id=%u\n",
+    ring->flags = 0;
+    TRACE_VERBOSE("Dmlog Snapshot: head_offset=%u, tail_offset=%u, buffer_size=%x latest_id=%u\n",
         ring->head_offset,
         ring->tail_offset,
         ring->buffer_size, 
         ring->latest_id);
 
-    TRACE_INFO("Dmlog snapshot loaded successfully\n");
+    TRACE_VERBOSE("Dmlog snapshot loaded successfully\n");
     return true;
 }
 
@@ -381,8 +382,8 @@ void monitor_run(monitor_ctx_t *ctx, bool show_timestamps, bool blocking_mode)
                 {
                     printf("%s", entry_data);
                 }
-                usleep(300000); 
             }
+            usleep(300000); 
         }
         TRACE_INFO("Exiting snapshot monitoring loop\n");
     }
