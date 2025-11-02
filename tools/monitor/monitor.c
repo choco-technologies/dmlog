@@ -69,6 +69,8 @@ static dmlog_ctx_t read_buffer_snapshot(monitor_ctx_t* ctx)
     
     // The local_ctx is a dmlog_ctx structure, and the ring is at the beginning
     // We can access it through casting to get the buffer pointer
+    // The ring.buffer field was set by dmlog_create to point to the buffer array
+    // within the dmlog_ctx structure
     dmlog_ring_t* local_ring = (dmlog_ring_t*)local_ctx;
     void* local_ring_buffer = (void*)((uintptr_t)local_ring->buffer);
     
@@ -80,7 +82,8 @@ static dmlog_ctx_t read_buffer_snapshot(monitor_ctx_t* ctx)
     }
 
     // Update the ring control structure from the target to our local context
-    // We need to preserve the local buffer pointer
+    // We need to preserve the local buffer pointer (which points to the buffer
+    // within our local dmlog_ctx structure)
     uint64_t local_buffer_ptr = local_ring->buffer;
     
     // Copy ring metadata from target
