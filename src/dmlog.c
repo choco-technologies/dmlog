@@ -240,7 +240,7 @@ dmlog_ctx_t dmlog_create(void *buffer, dmlog_index_t buffer_size)
     dmlog_index_t control_size  = (dmlog_index_t)((uintptr_t)ctx->buffer - (uintptr_t)ctx);
     ctx->ring.magic             = DMLOG_MAGIC_NUMBER;
     ctx->ring.buffer_size       = buffer_size - control_size;
-    ctx->ring.buffer            = (uint64_t)ctx->buffer;
+    ctx->ring.buffer            = (uint64_t)((uintptr_t)ctx->buffer);
     ctx->ring.head_offset       = 0;
     ctx->ring.tail_offset       = 0;
     ctx->ring.latest_id         = 0;
@@ -574,7 +574,7 @@ void dmlog_clear(dmlog_ctx_t ctx)
         ctx->ring.flags = DMLOG_FLAG_BUSY;
         ctx->ring.head_offset = 0;
         ctx->ring.tail_offset = 0;
-        ctx->ring.buffer = (uint64_t)ctx->buffer;
+        ctx->ring.buffer = (uint64_t)((uintptr_t)ctx->buffer);
         ctx->write_entry_offset = 0;
         ctx->read_entry_offset = 0; 
         ctx->next_id = 0;
