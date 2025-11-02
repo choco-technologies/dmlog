@@ -597,6 +597,7 @@ void dmlog_clear(dmlog_ctx_t ctx)
         ctx->next_id = 0;
         memset(ctx->write_buffer, 0, DMOD_LOG_MAX_ENTRY_SIZE);
         memset(ctx->read_buffer, 0, DMOD_LOG_MAX_ENTRY_SIZE);
+        memset(ctx->buffer, 0, ctx->ring.buffer_size);
         ctx->ring.flags &= ~DMLOG_FLAG_CLEAR_BUFFER;
         context_unlock(ctx);
     }
