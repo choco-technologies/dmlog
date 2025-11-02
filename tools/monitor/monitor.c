@@ -1,6 +1,8 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <unistd.h>
+#include <time.h>
+#include <string.h>
 #include "monitor.h"
 #include "openocd.h"
 #include "trace.h"
@@ -264,15 +266,33 @@ const char *monitor_get_entry_buffer(monitor_ctx_t *ctx)
  * @brief Run the monitor loop (not implemented)
  * 
  * @param ctx Pointer to the monitor context
+ * @param show_timestamps Whether to show timestamps with log entries
  */
-void monitor_run(monitor_ctx_t *ctx)
+void monitor_run(monitor_ctx_t *ctx, bool show_timestamps)
 {
     const char* entry_data = monitor_get_entry_buffer(ctx);
     while(monitor_wait_for_new_data(ctx) )
     {
         while(!is_buffer_empty(ctx) && monitor_update_entry(ctx))
         {
-            printf("%s", entry_data);
+            if(strlen(entry_data) == 0)
+            {
+                continue;
+            }
+            if(show_timestamps)
+            {
+                time_t now = time(NULL);
+                struct tm *local_time = localtime(&now);
+                printf("[%02d:%02d:%02d] %s", 
+                       local_time->tm_hour, 
+                       local_time->tm_min, 
+                       local_time->tm_sec, 
+                       entry_data);
+            }
+            else
+            {
+                printf("%s", entry_data);
+            }
         }
     }
 }

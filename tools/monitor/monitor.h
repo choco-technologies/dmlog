@@ -22,6 +22,6 @@ bool monitor_wait_until_not_busy(monitor_ctx_t *ctx);
 bool monitor_wait_for_new_data(monitor_ctx_t *ctx);
 bool monitor_update_entry(monitor_ctx_t *ctx);
 const char* monitor_get_entry_buffer(monitor_ctx_t *ctx);
-void monitor_run(monitor_ctx_t *ctx);
+void monitor_run(monitor_ctx_t *ctx, bool show_timestamps);
 
 #endif // MONITOR_H
