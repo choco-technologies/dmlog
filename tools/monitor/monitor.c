@@ -37,72 +37,41 @@ static bool is_buffer_empty(monitor_ctx_t* ctx)
 }
 
 /**
- * @brief Read a snapshot of the entire ring buffer from the target into local memory
+ * @brief Read a complete snapshot of the dmlog context from the target
  * 
- * This function reads the entire ring buffer structure and data from the target device
- * and stores it in the local buffer. This allows us to process all entries locally
- * without making multiple OpenOCD requests.
+ * This function reads the entire dmlog context structure from the target memory
+ * in one operation, including the ring control structure and all buffer data.
  * 
  * @param ctx Pointer to the monitor context
- * @return dmlog_ctx_t Local dmlog context with updated snapshot, or NULL on failure
+ * @return dmlog_ctx_t Pointer to the local snapshot context, or NULL on failure
  */
-static dmlog_ctx_t read_buffer_snapshot(monitor_ctx_t* ctx)
+static dmlog_ctx_t read_snapshot(monitor_ctx_t* ctx)
 {
-    // First, update the ring metadata from the target
-    if(!monitor_update_ring(ctx))
+    // Read the entire dmlog context from target memory into our local snapshot
+    // This is a single read operation that gets everything at once
+    if(openocd_read_memory(ctx->socket, ctx->ring_address, ctx->local_snapshot, ctx->snapshot_size) < 0)
     {
-        TRACE_ERROR("Failed to update ring buffer metadata\n");
+        TRACE_ERROR("Failed to read snapshot from target (address=0x%08X, size=%zu)\n", 
+                    ctx->ring_address, ctx->snapshot_size);
         return NULL;
     }
-
-    // Get the local dmlog context (created once in monitor_connect)
-    dmlog_ctx_t local_ctx = (dmlog_ctx_t)ctx->local_buffer;
-    if(!dmlog_is_valid(local_ctx))
+    
+    dmlog_ctx_t local_ctx = (dmlog_ctx_t)ctx->local_snapshot;
+    
+    // Verify the magic number
+    dmlog_ring_t* ring = (dmlog_ring_t*)local_ctx;
+    if(ring->magic != DMLOG_MAGIC_NUMBER)
     {
-        TRACE_ERROR("Local dmlog context is not valid\n");
+        TRACE_ERROR("Invalid magic number in snapshot: 0x%08X\n", ring->magic);
         return NULL;
     }
-
-    // Now read the actual buffer data from the target
-    uint32_t buffer_address = (uint32_t)((uintptr_t)ctx->ring.buffer);
-    uint32_t buffer_size = ctx->ring.buffer_size;
     
-    // The local_ctx is a dmlog_ctx structure, and the ring is at the beginning
-    // We can access it through casting to get the buffer pointer
-    // The ring.buffer field was set by dmlog_create to point to the buffer array
-    // within the dmlog_ctx structure
-    dmlog_ring_t* local_ring = (dmlog_ring_t*)local_ctx;
-    void* local_ring_buffer = (void*)((uintptr_t)local_ring->buffer);
+    TRACE_VERBOSE("Snapshot read: head=%u, tail=%u, latest_id=%u\n",
+                  ring->head_offset, ring->tail_offset, ring->latest_id);
     
-    if(openocd_read_memory(ctx->socket, buffer_address, local_ring_buffer, buffer_size) < 0)
-    {
-        TRACE_ERROR("Failed to read buffer data from target (address=0x%08X, size=%u)\n", 
-                    buffer_address, buffer_size);
-        return NULL;
-    }
-
-    // Update the ring control structure from the target to our local context
-    // We need to preserve the local buffer pointer (which points to the buffer
-    // within our local dmlog_ctx structure)
-    uint64_t local_buffer_ptr = local_ring->buffer;
-    
-    // Copy ring metadata from target
-    local_ring->head_offset = ctx->ring.head_offset;
-    local_ring->tail_offset = ctx->ring.tail_offset;
-    local_ring->latest_id = ctx->ring.latest_id;
-    local_ring->flags = ctx->ring.flags;
-    local_ring->buffer_size = ctx->ring.buffer_size;
-    // Keep the local buffer pointer (don't overwrite with target address)
-    local_ring->buffer = local_buffer_ptr;
-
-    TRACE_VERBOSE("Buffer snapshot: head=%u, tail=%u, size=%u, latest_id=%u\n",
-                  local_ring->head_offset,
-                  local_ring->tail_offset,
-                  local_ring->buffer_size,
-                  local_ring->latest_id);
-
     return local_ctx;
 }
+
 
 /**
  * @brief Read data from the dmlog ring buffer, handling wrap-around
@@ -177,6 +146,7 @@ monitor_ctx_t *monitor_connect(opencd_addr_t *addr, uint32_t ring_address)
 
     ctx->ring_address = ring_address;
 
+    // Read the ring metadata to get buffer_size
     if(!monitor_update_ring(ctx))
     {
         monitor_disconnect(ctx);
@@ -185,24 +155,24 @@ monitor_ctx_t *monitor_connect(opencd_addr_t *addr, uint32_t ring_address)
 
     ctx->tail_offset = ctx->ring.tail_offset;
 
-    // Allocate local buffer to store a snapshot of the entire ring buffer
-    // We need space for the dmlog context structure + the actual buffer
-    // The dmlog_create function will calculate the exact control structure size
-    // and use the remaining space for the buffer. Let's allocate enough space.
-    ctx->local_buffer_size = sizeof(dmlog_ring_t) + 2 * DMOD_LOG_MAX_ENTRY_SIZE + 
-                            sizeof(dmlog_index_t) * 2 + sizeof(dmlog_entry_id_t) + 
-                            sizeof(size_t) + ctx->ring.buffer_size + 16; // +16 for alignment
-    ctx->local_buffer = malloc(ctx->local_buffer_size);
-    if(ctx->local_buffer == NULL)
+    // Calculate the total size needed for the snapshot
+    // This is the context structure size + the actual buffer size
+    // The control_size is calculated the same way as in dmlog_create
+    size_t control_size = sizeof(dmlog_ring_t) + 2 * DMOD_LOG_MAX_ENTRY_SIZE + 
+                         sizeof(dmlog_index_t) * 2 + sizeof(dmlog_entry_id_t) + sizeof(size_t);
+    ctx->snapshot_size = control_size + ctx->ring.buffer_size;
+    
+    // Allocate memory for the local snapshot
+    ctx->local_snapshot = malloc(ctx->snapshot_size);
+    if(ctx->local_snapshot == NULL)
     {
-        TRACE_ERROR("Failed to allocate local buffer of size %zu\n", ctx->local_buffer_size);
+        TRACE_ERROR("Failed to allocate snapshot buffer of size %zu\n", ctx->snapshot_size);
         monitor_disconnect(ctx);
         return NULL;
     }
     
-    // Initialize the local dmlog context once
-    // This creates the context structure with proper layout
-    dmlog_ctx_t local_ctx = dmlog_create(ctx->local_buffer, ctx->local_buffer_size);
+    // Initialize the local dmlog context
+    dmlog_ctx_t local_ctx = dmlog_create(ctx->local_snapshot, ctx->snapshot_size);
     if(local_ctx == NULL)
     {
         TRACE_ERROR("Failed to create local dmlog context\n");
@@ -210,8 +180,8 @@ monitor_ctx_t *monitor_connect(opencd_addr_t *addr, uint32_t ring_address)
         return NULL;
     }
 
-    TRACE_INFO("Connected to dmlog ring buffer at 0x%08X (buffer size: %u bytes)\n", 
-               ring_address, ctx->ring.buffer_size);
+    TRACE_INFO("Connected to dmlog ring buffer at 0x%08X (buffer_size=%u, snapshot_size=%zu)\n", 
+               ring_address, ctx->ring.buffer_size, ctx->snapshot_size);
     return ctx;
 }
 
@@ -224,9 +194,9 @@ void monitor_disconnect(monitor_ctx_t *ctx)
 {
     if(ctx)
     {
-        if(ctx->local_buffer)
+        if(ctx->local_snapshot)
         {
-            free(ctx->local_buffer);
+            free(ctx->local_snapshot);
         }
         openocd_disconnect(ctx->socket);
         free(ctx);
@@ -376,38 +346,54 @@ const char *monitor_get_entry_buffer(monitor_ctx_t *ctx)
 }
 
 /**
- * @brief Run the monitor loop with snapshot-based reading
+ * @brief Run the monitor loop using snapshot-based reading
  * 
- * This function reads the entire buffer every 300ms as a snapshot and processes
- * all entries from it using the dmlog API. This reduces the number of OpenOCD
- * requests and improves performance.
+ * This function reads a complete snapshot of the dmlog context every 300ms
+ * and processes all entries using the dmlog API.
  * 
  * @param ctx Pointer to the monitor context
  * @param show_timestamps Whether to show timestamps with log entries
- * @param blocking_mode Whether to use blocking mode for reading log entries (unused in snapshot mode)
+ * @param blocking_mode Whether to use blocking mode for reading log entries
  */
 void monitor_run(monitor_ctx_t *ctx, bool show_timestamps, bool blocking_mode)
 {
-    (void)blocking_mode; // Not used in snapshot mode
-    
-    TRACE_INFO("Starting monitor in snapshot mode (300ms interval)\n");
+    TRACE_INFO("Starting monitor in snapshot mode (300ms interval, blocking_mode=%d)\n", blocking_mode);
     
     while(true)
     {
-        // Wait 300ms between buffer snapshots
+        // Wait 300ms between snapshots
         usleep(300000);
         
-        // Read a snapshot of the entire buffer
-        dmlog_ctx_t local_ctx = read_buffer_snapshot(ctx);
-        if(local_ctx == NULL)
+        // In blocking mode, set the busy flag before reading
+        if(blocking_mode && !monitor_send_busy_command(ctx))
         {
-            TRACE_ERROR("Failed to read buffer snapshot, retrying...\n");
+            TRACE_ERROR("Failed to send busy command\n");
             continue;
         }
         
-        // Check if there are any new entries by comparing latest_id
-        // We stored latest_id in ctx->ring during monitor_update_ring
-        if(ctx->ring.latest_id <= ctx->last_entry_id)
+        // Read a complete snapshot of the entire dmlog context from target
+        dmlog_ctx_t local_ctx = read_snapshot(ctx);
+        if(local_ctx == NULL)
+        {
+            TRACE_ERROR("Failed to read snapshot, retrying...\n");
+            if(blocking_mode)
+            {
+                monitor_send_not_busy_command(ctx);
+            }
+            continue;
+        }
+        
+        // In blocking mode, clear the busy flag after reading
+        if(blocking_mode && !monitor_send_not_busy_command(ctx))
+        {
+            TRACE_ERROR("Failed to send not busy command\n");
+        }
+        
+        // Get the ring from the snapshot to check for new entries
+        dmlog_ring_t* ring = (dmlog_ring_t*)local_ctx;
+        
+        // Check if there are any new entries
+        if(ring->latest_id <= ctx->last_entry_id)
         {
             // No new entries
             continue;
@@ -436,8 +422,8 @@ void monitor_run(monitor_ctx_t *ctx, bool show_timestamps, bool blocking_mode)
             }
         }
         
-        // Update the last entry ID we've seen
-        ctx->last_entry_id = ctx->ring.latest_id;
+        // Update the last entry ID we've processed
+        ctx->last_entry_id = ring->latest_id;
     }
 }
 
