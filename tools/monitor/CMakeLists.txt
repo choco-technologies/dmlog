@@ -2,6 +2,7 @@ add_executable(dmlog_monitor
     main.c
     openocd.c
     monitor.c
+    trace.c
 )
 
 target_link_libraries(dmlog_monitor

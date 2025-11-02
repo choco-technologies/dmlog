@@ -85,7 +85,7 @@ bool monitor_update_ring(monitor_ctx_t *ctx)
  * @param ctx Pointer to the monitor context
  * @return true if the buffer became not busy, false on error
  */
-bool monitor_wait_until_busy(monitor_ctx_t *ctx)
+bool monitor_wait_until_not_busy(monitor_ctx_t *ctx)
 {
     bool success = false;
 
@@ -104,4 +104,29 @@ bool monitor_wait_until_busy(monitor_ctx_t *ctx)
         }
     }
     return success;
+}
+
+/**
+ * @brief Update the current dmlog entry from the target
+ * 
+ * @param ctx Pointer to the monitor context
+ * @return true on success, false on failure
+ */
+bool monitor_update_entry(monitor_ctx_t *ctx)
+{
+    monitor_wait_until_not_busy(ctx);
+
+    uint32_t entry_address = (uint32_t)((uintptr_t)ctx->ring.buffer) + ctx->ring.head_offset;
+    if(openocd_read_memory(ctx->socket, entry_address, &ctx->current_entry, sizeof(dmlog_entry_t)) < 0)
+    {
+        TRACE_ERROR("Failed to read dmlog entry from target\n");
+        return false;
+    }
+    if(ctx->current_entry.magic != DMLOG_ENTRY_MAGIC_NUMBER)
+    {
+        TRACE_ERROR("Invalid dmlog entry magic number: 0x%08X\n", ctx->current_entry.magic);
+        return false;
+    }
+
+    return true;
 }

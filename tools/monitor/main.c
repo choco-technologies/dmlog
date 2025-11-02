@@ -19,6 +19,8 @@ void usage(const char *progname)
     printf("  --port        OpenOCD port (default: 4444)\n");
     printf("  --addr        Address of the ring buffer\n");
     printf("  --search      Search for the ring buffer in memory\n");
+    printf("  --trace-level Set trace level (error, warn, info, verbose)\n");
+    printf("  --verbose     Enable verbose output (equivalent to --trace-level verbose)\n");
 }
 
 int main(int argc, char *argv[])
@@ -51,6 +53,36 @@ int main(int argc, char *argv[])
         {
             ring_buffer_address = (uint32_t)strtoul(argv[++i], NULL, 0);
         }
+        else if(strcmp(argv[i], "--trace-level") == 0 && i + 1 < argc)
+        {
+            const char *level_str = argv[++i];
+            if(strcmp(level_str, "error") == 0)
+            {
+                current_trace_level = TRACE_LEVEL_ERROR;
+            }
+            else if(strcmp(level_str, "warn") == 0)
+            {
+                current_trace_level = TRACE_LEVEL_WARN;
+            }
+            else if(strcmp(level_str, "info") == 0)
+            {
+                current_trace_level = TRACE_LEVEL_INFO;
+            }
+            else if(strcmp(level_str, "verbose") == 0)
+            {
+                current_trace_level = TRACE_LEVEL_VERBOSE;
+            }
+            else
+            {
+                TRACE_ERROR("Unknown trace level: %s\n", level_str);
+                usage(argv[0]);
+                return 1;
+            }
+        }
+        else if(strcmp(argv[i], "--verbose") == 0)
+        {
+            current_trace_level = TRACE_LEVEL_VERBOSE;
+        }
         else
         {
             TRACE_ERROR("Unknown option: %s\n", argv[i]);
@@ -66,7 +98,7 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    monitor_wait_until_busy(ctx);
+    monitor_update_entry(ctx);
 
     // Main monitoring loop would go here
     monitor_disconnect(ctx);
