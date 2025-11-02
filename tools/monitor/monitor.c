@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <stdbool.h>
+#include <unistd.h>
 #include "monitor.h"
 #include "openocd.h"
 #include "trace.h"
@@ -77,6 +78,8 @@ monitor_ctx_t *monitor_connect(opencd_addr_t *addr, uint32_t ring_address)
         return NULL;
     }
 
+    ctx->tail_offset = ctx->ring.tail_offset;
+
     TRACE_INFO("Connected to dmlog ring buffer at 0x%08X\n", ring_address);
     return ctx;
 }
@@ -119,8 +122,6 @@ bool monitor_update_ring(monitor_ctx_t *ctx)
         ctx->ring.tail_offset,
         ctx->ring.buffer_size,
         ctx->ring.buffer);
-    
-    ctx->tail_offset = ctx->ring.tail_offset;
 
     return true;
 }
@@ -151,6 +152,7 @@ bool monitor_wait_until_not_busy(monitor_ctx_t *ctx)
             success = false;
             break;
         }
+        usleep(10000); // Sleep briefly to avoid busy-waiting
     }
     return success;
 }

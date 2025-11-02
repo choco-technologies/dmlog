@@ -131,17 +131,41 @@ static bool parse_memory_line(const char *line, uint8_t *buffer, size_t *offset,
             return false;
         }
 
-        if(*offset + 4 > max_length)
+        if(*offset + 4 <= max_length)
         {
-            TRACE_ERROR("Buffer overflow while parsing memory line. Offset: %lu max: %lu\n", *offset, max_length);
-            TRACE_ERROR("current line: %s\n", ptr);
+            // Store word in buffer in little-endian format
+            uint32_t* dst = (uint32_t*)&buffer[*offset];
+            *dst = word;
+            *offset += 4;
+        }
+        else if(*offset + 3 <= max_length)
+        {
+            // Store lower 3 bytes
+            uint8_t* dst = (uint8_t*)&buffer[*offset];
+            dst[0] = (uint8_t)(word & 0xFF);
+            dst[1] = (uint8_t)((word >> 8) & 0xFF);
+            dst[2] = (uint8_t)((word >> 16) & 0xFF);
+            *offset += 3;
+        }
+        else if(*offset + 2 <= max_length)
+        {
+            // Store lower 2 bytes
+            uint16_t* dst = (uint16_t*)&buffer[*offset];
+            *dst = (uint16_t)(word & 0xFFFF);
+            *offset += 2;
+        }
+        else if(*offset + 1 <= max_length)
+        {
+            // Store lower byte
+            buffer[*offset] = (uint8_t)(word & 0xFF);
+            (*offset)++;
+        }
+        else
+        {
+            TRACE_ERROR("Buffer overflow while parsing memory line\n");
             return false;
         }
 
-        // Store word in buffer in little-endian format
-        uint32_t* dst = (uint32_t*)&buffer[*offset];
-        *dst = word;
-        *offset += 4;
 
         while(*ptr && !isspace((unsigned char)*ptr) && *ptr != '\n')
             ptr++;
@@ -304,7 +328,8 @@ int openocd_send_command(int socket, const char *cmd, char *response, size_t res
 int openocd_read_memory(int socket, uint32_t address, void *buffer, size_t length)
 {
     char cmd[64];
-    snprintf(cmd, sizeof(cmd), "mdw 0x%08X %zu", address, length / 4);
+    size_t word_count = (length + 3) / 4; // Number of 32-bit words to read
+    snprintf(cmd, sizeof(cmd), "mdw 0x%08X %zu", address, word_count);
     size_t response_size = length * 5 + 128;
     char* response = malloc(response_size); // Allocate enough space for response
     if(response == NULL)
