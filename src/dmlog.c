@@ -577,7 +577,6 @@ void dmlog_clear(dmlog_ctx_t ctx)
     if(dmlog_is_valid(ctx))
     {
         context_lock(ctx);
-        ctx->ring.flags = DMLOG_FLAG_BUSY;
         ctx->ring.head_offset = 0;
         ctx->ring.tail_offset = 0;
         ctx->ring.buffer = (uint64_t)((uintptr_t)ctx->buffer);
@@ -586,6 +585,7 @@ void dmlog_clear(dmlog_ctx_t ctx)
         ctx->next_id = 0;
         memset(ctx->write_buffer, 0, DMOD_LOG_MAX_ENTRY_SIZE);
         memset(ctx->read_buffer, 0, DMOD_LOG_MAX_ENTRY_SIZE);
+        ctx->ring.flags &= ~DMLOG_FLAG_CLEAR_BUFFER;
         context_unlock(ctx);
     }
     Dmod_ExitCritical();

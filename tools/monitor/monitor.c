@@ -357,7 +357,27 @@ bool monitor_write_flags(monitor_ctx_t *ctx, uint32_t flags)
 bool monitor_send_clear_command(monitor_ctx_t *ctx)
 {
     TRACE_INFO("Sending clear command to dmlog ring buffer\n");
-    return monitor_write_flags(ctx, ctx->ring.flags | DMLOG_FLAG_CLEAR_BUFFER);
+    if(!monitor_write_flags(ctx, ctx->ring.flags | DMLOG_FLAG_CLEAR_BUFFER))
+    {
+        TRACE_ERROR("Failed to send clear command to dmlog ring buffer\n");
+        return false;
+    }
+
+    TRACE_INFO("Waiting for clear command to be processed\n");
+
+    while(ctx->ring.flags & DMLOG_FLAG_CLEAR_BUFFER)
+    {
+        if(!monitor_update_ring(ctx))
+        {
+            TRACE_ERROR("Failed to update dmlog ring buffer after sending clear command\n");
+            return false;
+        }
+        usleep(10000); // Sleep briefly to avoid busy-waiting
+    }
+
+    TRACE_INFO("Clear command processed successfully\n");
+
+    return true;
 }
 
 /**
