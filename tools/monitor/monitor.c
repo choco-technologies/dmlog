@@ -294,7 +294,15 @@ void monitor_run(monitor_ctx_t *ctx, bool show_timestamps, bool blocking_mode)
         {
             if(!monitor_update_entry(ctx, blocking_mode))
             {
-                monitor_synchronize(ctx);
+                if(!monitor_synchronize(ctx))
+                {
+                    TRACE_ERROR("Failed to synchronize monitor context with target dmlog ring buffer\n");
+                    return;
+                }
+            }
+            if(ctx->current_entry.id < ctx->last_entry_id)
+            {
+                continue; // No new entry
             }
             if(strlen(entry_data) == 0)
             {
@@ -304,15 +312,16 @@ void monitor_run(monitor_ctx_t *ctx, bool show_timestamps, bool blocking_mode)
             {
                 time_t now = time(NULL);
                 struct tm *local_time = localtime(&now);
-                printf("[%02d:%02d:%02d] %s", 
+                printf("[%02d:%02d:%02d] <%u> %s", 
                        local_time->tm_hour, 
                        local_time->tm_min, 
                        local_time->tm_sec, 
+                       ctx->current_entry.id,
                        entry_data);
             }
             else
             {
-                printf("%s", entry_data);
+                printf("<%u> %s", ctx->current_entry.id, entry_data);
             }
         }
     }
@@ -365,7 +374,7 @@ bool monitor_send_clear_command(monitor_ctx_t *ctx)
 
     TRACE_INFO("Waiting for clear command to be processed\n");
 
-    while(ctx->ring.flags & DMLOG_FLAG_CLEAR_BUFFER)
+    while(ctx->ring.flags & DMLOG_FLAG_CLEAR_BUFFER || (ctx->ring.tail_offset != 0))
     {
         if(!monitor_update_ring(ctx))
         {
@@ -438,6 +447,7 @@ bool monitor_synchronize(monitor_ctx_t *ctx)
         return false;
     }
     ctx->tail_offset = ctx->ring.tail_offset;
+    ctx->last_entry_id = ctx->ring.latest_id;
 
     return true;
 }

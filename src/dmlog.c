@@ -370,7 +370,14 @@ bool dmlog_puts(dmlog_ctx_t ctx, const char *s)
                 break;
             }
         }
-        result = dmlog_flush(ctx);
+        if(s[len - 1] != '\n')
+        {
+            result = dmlog_flush(ctx);
+        }
+        else 
+        {
+            result = true;
+        }
         context_unlock(ctx);
     }
     Dmod_ExitCritical();
