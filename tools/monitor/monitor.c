@@ -174,7 +174,7 @@ bool monitor_update_ring(monitor_ctx_t *ctx)
  */
 bool monitor_wait_until_not_busy(monitor_ctx_t *ctx)
 {
-    bool success = false;
+    bool success = ctx->owns_busy_flag;
 
     while(!ctx->owns_busy_flag)
     {

@@ -424,33 +424,32 @@ int openocd_read_memory(int socket, uint32_t address, void *buffer, size_t lengt
  */
 int openocd_write_memory(int socket, uint32_t address, const void *buffer, size_t length)
 {
-    size_t word_count = (length + 3) / 4; // Number of 32-bit words to write
-    char* cmd = malloc(64 + word_count * 9); // "mww " + address + count + words
-    if(cmd == NULL)
+    char cmd[128];
+    size_t word_count = length / 4; 
+    for(size_t i = 0; i < word_count; i++)
     {
-        TRACE_ERROR("Failed to allocate memory for write command\n");
-        return -1;
+        uint32_t word = *((uint32_t*)((uint8_t*)buffer + i * 4));
+        uint32_t addr = address + i * 4;
+        snprintf(cmd, sizeof(cmd), "mww 0x%08X 0x%08X", addr, word);
+        char response[256] = {0};
+        if(openocd_send_command(socket, cmd, response, sizeof(response)) < 0)
+        {
+            return -1;
+        }
     }
 
-    size_t offset = 0;
-    size_t cmd_offset = snprintf(cmd, 64, "mww 0x%08X %zu", address, word_count);
-    while(offset < length)
+    size_t remaining_bytes = length % 4;
+    for(size_t i = 0; i < remaining_bytes; i++)
     {
-        uint32_t word = 0;
-        size_t bytes_to_copy = (length - offset >= 4) ? 4 : (length - offset);
-        memcpy(&word, (const uint8_t*)buffer + offset, bytes_to_copy);
-        cmd_offset += snprintf(cmd + cmd_offset, 10, " %08X", word);
-        offset += bytes_to_copy;
+        uint8_t byte = *((uint8_t*)((uint8_t*)buffer + word_count * 4 + i));
+        uint32_t addr = address + word_count * 4 + i;
+        snprintf(cmd, sizeof(cmd), "mwb 0x%08X 0x%02X", addr, byte);
+        char response[256] = {0};
+        if(openocd_send_command(socket, cmd, response, sizeof(response)) < 0)
+        {
+            return -1;
+        }
     }
 
-    char response[256] = {0};
-    int result = 0;
-    if(openocd_send_command(socket, cmd, response, sizeof(response)) < 0)
-    {
-        TRACE_ERROR("Failed to send write memory command\n");
-        result = -1;
-    }
-
-    free(cmd);
-    return result;
+    return 0;
 }

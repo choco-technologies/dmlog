@@ -21,6 +21,10 @@ struct dmlog_ctx
  */
 static void context_lock(dmlog_ctx_t ctx)
 {
+    while(ctx->lock_recursion == 0 && (ctx->ring.flags & DMLOG_FLAG_BUSY))
+    {
+        // Busy wait
+    }
     ctx->ring.flags |= DMLOG_FLAG_BUSY;
     ctx->lock_recursion++;
 }
