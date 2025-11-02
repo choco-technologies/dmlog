@@ -6,11 +6,13 @@
 
 typedef struct 
 {
-    dmlog_ring_t    ring;
-    int             socket;
-    uint32_t        ring_address;
-    dmlog_entry_t   current_entry;
-    char            entry_buffer[DMOD_LOG_MAX_ENTRY_SIZE];
+    dmlog_ring_t        ring;
+    int                 socket;
+    uint32_t            ring_address;
+    dmlog_entry_t       current_entry;
+    dmlog_index_t       tail_offset;
+    dmlog_entry_id_t    last_entry_id;
+    char                entry_buffer[DMOD_LOG_MAX_ENTRY_SIZE];
 } monitor_ctx_t;
 
 monitor_ctx_t* monitor_connect(opencd_addr_t *addr, uint32_t ring_address);

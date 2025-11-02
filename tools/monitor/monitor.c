@@ -5,6 +5,48 @@
 #include "trace.h"
 
 /**
+ * @brief Read data from the dmlog ring buffer, handling wrap-around
+ * 
+ * @param ctx Pointer to the monitor context
+ * @param dst Destination buffer to store read data
+ * @param length Number of bytes to read
+ * @return true on success, false on failure
+ */
+static bool read_from_buffer(monitor_ctx_t* ctx, void* dst, size_t length)
+{
+    uint32_t left_size = ctx->ring.buffer_size - ctx->tail_offset;
+    if(length <= left_size)
+    {
+        uint32_t address = (uint32_t)((uintptr_t)ctx->ring.buffer) + ctx->tail_offset;
+        if(openocd_read_memory(ctx->socket, address, dst, length) < 0)
+        {
+            TRACE_ERROR("Failed to read %zu bytes from buffer at offset %u\n", length, ctx->tail_offset);
+            return false;
+        }
+        ctx->tail_offset = (ctx->tail_offset + length) % ctx->ring.buffer_size;
+    }
+    else
+    {
+        // Read in two parts due to wrap-around
+        uint32_t address = (uint32_t)((uintptr_t)ctx->ring.buffer) + ctx->tail_offset;
+        if(openocd_read_memory(ctx->socket, address, dst, left_size) < 0)
+        {
+            TRACE_ERROR("Failed to read %u bytes from buffer at offset %u\n", left_size, ctx->tail_offset);
+            return false;
+        }
+        size_t remaining = length - left_size;
+        address = (uint32_t)((uintptr_t)ctx->ring.buffer);
+        if(openocd_read_memory(ctx->socket, address, (uint8_t*)dst + left_size, remaining) < 0)
+        {
+            TRACE_ERROR("Failed to read %zu bytes from buffer at offset 0\n", remaining);
+            return false;
+        }
+        ctx->tail_offset = remaining;
+    }
+    return true;
+}
+
+/**
  * @brief Connect to the monitor via OpenOCD and initialize context
  * 
  * @param addr Pointer to OpenOCD address structure
@@ -72,12 +114,13 @@ bool monitor_update_ring(monitor_ctx_t *ctx)
         TRACE_ERROR("Invalid dmlog ring buffer magic number: 0x%08X\n", ctx->ring.magic);
         return false;
     }
-    dmlog_ctx_t dmlog_ctx = (dmlog_ctx_t)&ctx->ring;
     TRACE_VERBOSE("Dmlog Ring Buffer: head_offset=%u, tail_offset=%u, buffer_size=%x, buffer_address=%lx\n",
         ctx->ring.head_offset,
         ctx->ring.tail_offset,
         ctx->ring.buffer_size,
         ctx->ring.buffer);
+    
+    ctx->tail_offset = ctx->ring.tail_offset;
 
     return true;
 }
@@ -122,8 +165,8 @@ bool monitor_update_entry(monitor_ctx_t *ctx)
 {
     monitor_wait_until_not_busy(ctx);
 
-    uint32_t entry_address = (uint32_t)((uintptr_t)ctx->ring.buffer) + ctx->ring.tail_offset;
-    if(openocd_read_memory(ctx->socket, entry_address, &ctx->current_entry, sizeof(dmlog_entry_t)) < 0)
+    uint32_t entry_address = (uint32_t)((uintptr_t)ctx->ring.buffer) + ctx->tail_offset;
+    if(!read_from_buffer(ctx, &ctx->current_entry, sizeof(dmlog_entry_t)))
     {
         TRACE_ERROR("Failed to read dmlog entry from target\n");
         return false;
@@ -138,12 +181,12 @@ bool monitor_update_entry(monitor_ctx_t *ctx)
         TRACE_ERROR("Dmlog entry length %u exceeds maximum %u\n", ctx->current_entry.length, DMOD_LOG_MAX_ENTRY_SIZE);
         return false;
     }
-    entry_address += sizeof(dmlog_entry_t);
-    if(openocd_read_memory(ctx->socket, entry_address, ctx->entry_buffer, ctx->current_entry.length) < 0)
+    if(!read_from_buffer(ctx, ctx->entry_buffer, ctx->current_entry.length) )
     {
         TRACE_ERROR("Failed to read dmlog entry data from target\n");
         return false;
     }
+    ctx->last_entry_id = ctx->current_entry.id;
     ctx->entry_buffer[ctx->current_entry.length] = '\0'; // Null-terminate
     TRACE_VERBOSE("Dmlog Entry ID: %u, Length: %u\n", ctx->current_entry.id, ctx->current_entry.length);
 
