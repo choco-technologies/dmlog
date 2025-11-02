@@ -44,7 +44,7 @@ static bool is_buffer_empty(monitor_ctx_t* ctx)
  * without making multiple OpenOCD requests.
  * 
  * @param ctx Pointer to the monitor context
- * @return dmlog_ctx_t Local dmlog context created from the snapshot, or NULL on failure
+ * @return dmlog_ctx_t Local dmlog context with updated snapshot, or NULL on failure
  */
 static dmlog_ctx_t read_buffer_snapshot(monitor_ctx_t* ctx)
 {
@@ -55,12 +55,11 @@ static dmlog_ctx_t read_buffer_snapshot(monitor_ctx_t* ctx)
         return NULL;
     }
 
-    // Initialize a local dmlog context if not already done
-    // This creates the context structure with proper layout
-    dmlog_ctx_t local_ctx = dmlog_create(ctx->local_buffer, ctx->local_buffer_size);
-    if(local_ctx == NULL)
+    // Get the local dmlog context (created once in monitor_connect)
+    dmlog_ctx_t local_ctx = (dmlog_ctx_t)ctx->local_buffer;
+    if(!dmlog_is_valid(local_ctx))
     {
-        TRACE_ERROR("Failed to create local dmlog context from snapshot\n");
+        TRACE_ERROR("Local dmlog context is not valid\n");
         return NULL;
     }
 
@@ -68,12 +67,10 @@ static dmlog_ctx_t read_buffer_snapshot(monitor_ctx_t* ctx)
     uint32_t buffer_address = (uint32_t)((uintptr_t)ctx->ring.buffer);
     uint32_t buffer_size = ctx->ring.buffer_size;
     
-    // Calculate where the buffer data is in the local context
-    // The buffer starts after the fixed part of dmlog_ctx structure:
-    // dmlog_ring_t + write_buffer + write_entry_offset + read_buffer + read_entry_offset + next_id + lock_recursion
-    size_t ctx_fixed_size = sizeof(dmlog_ring_t) + DMOD_LOG_MAX_ENTRY_SIZE + sizeof(dmlog_index_t) + 
-                           DMOD_LOG_MAX_ENTRY_SIZE + sizeof(dmlog_index_t) + sizeof(dmlog_entry_id_t) + sizeof(size_t);
-    void* local_ring_buffer = (uint8_t*)local_ctx + ctx_fixed_size;
+    // The local_ctx is a dmlog_ctx structure, and the ring is at the beginning
+    // We can access it through casting to get the buffer pointer
+    dmlog_ring_t* local_ring = (dmlog_ring_t*)local_ctx;
+    void* local_ring_buffer = (void*)((uintptr_t)local_ring->buffer);
     
     if(openocd_read_memory(ctx->socket, buffer_address, local_ring_buffer, buffer_size) < 0)
     {
@@ -82,25 +79,24 @@ static dmlog_ctx_t read_buffer_snapshot(monitor_ctx_t* ctx)
         return NULL;
     }
 
-    // Copy the ring control structure from the target to our local context
-    // This includes head_offset, tail_offset, latest_id, etc.
-    // We need to keep the buffer pointer pointing to local memory
+    // Update the ring control structure from the target to our local context
+    // We need to preserve the local buffer pointer
+    uint64_t local_buffer_ptr = local_ring->buffer;
     
-    uint64_t local_buffer_addr = (uint64_t)((uintptr_t)local_ring_buffer);
-    
-    // Copy ring metadata from target, but update buffer pointer to local
-    dmlog_ring_t local_ring_copy = ctx->ring;
-    local_ring_copy.buffer = local_buffer_addr;
-    
-    // Copy the ring structure into the local context
-    // The dmlog_ctx has a ring field at the beginning
-    memcpy(local_ctx, &local_ring_copy, sizeof(dmlog_ring_t));
+    // Copy ring metadata from target
+    local_ring->head_offset = ctx->ring.head_offset;
+    local_ring->tail_offset = ctx->ring.tail_offset;
+    local_ring->latest_id = ctx->ring.latest_id;
+    local_ring->flags = ctx->ring.flags;
+    local_ring->buffer_size = ctx->ring.buffer_size;
+    // Keep the local buffer pointer (don't overwrite with target address)
+    local_ring->buffer = local_buffer_ptr;
 
     TRACE_VERBOSE("Buffer snapshot: head=%u, tail=%u, size=%u, latest_id=%u\n",
-                  ctx->ring.head_offset,
-                  ctx->ring.tail_offset,
-                  ctx->ring.buffer_size,
-                  ctx->ring.latest_id);
+                  local_ring->head_offset,
+                  local_ring->tail_offset,
+                  local_ring->buffer_size,
+                  local_ring->latest_id);
 
     return local_ctx;
 }
@@ -188,10 +184,11 @@ monitor_ctx_t *monitor_connect(opencd_addr_t *addr, uint32_t ring_address)
 
     // Allocate local buffer to store a snapshot of the entire ring buffer
     // We need space for the dmlog context structure + the actual buffer
-    // dmlog_create needs: control structure overhead + buffer_size
-    // The overhead is roughly: dmlog_ring_t + 2*DMOD_LOG_MAX_ENTRY_SIZE + other fields + alignment
-    // Let's allocate a safe amount: 512 bytes for overhead + buffer_size
-    ctx->local_buffer_size = 512 + ctx->ring.buffer_size;
+    // The dmlog_create function will calculate the exact control structure size
+    // and use the remaining space for the buffer. Let's allocate enough space.
+    ctx->local_buffer_size = sizeof(dmlog_ring_t) + 2 * DMOD_LOG_MAX_ENTRY_SIZE + 
+                            sizeof(dmlog_index_t) * 2 + sizeof(dmlog_entry_id_t) + 
+                            sizeof(size_t) + ctx->ring.buffer_size + 16; // +16 for alignment
     ctx->local_buffer = malloc(ctx->local_buffer_size);
     if(ctx->local_buffer == NULL)
     {
@@ -199,7 +196,16 @@ monitor_ctx_t *monitor_connect(opencd_addr_t *addr, uint32_t ring_address)
         monitor_disconnect(ctx);
         return NULL;
     }
-    memset(ctx->local_buffer, 0, ctx->local_buffer_size);
+    
+    // Initialize the local dmlog context once
+    // This creates the context structure with proper layout
+    dmlog_ctx_t local_ctx = dmlog_create(ctx->local_buffer, ctx->local_buffer_size);
+    if(local_ctx == NULL)
+    {
+        TRACE_ERROR("Failed to create local dmlog context\n");
+        monitor_disconnect(ctx);
+        return NULL;
+    }
 
     TRACE_INFO("Connected to dmlog ring buffer at 0x%08X (buffer size: %u bytes)\n", 
                ring_address, ctx->ring.buffer_size);
