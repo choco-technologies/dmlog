@@ -388,7 +388,7 @@ bool monitor_send_clear_command(monitor_ctx_t *ctx)
  */
 bool monitor_send_busy_command(monitor_ctx_t *ctx)
 {
-    TRACE_VERBOSE("Sending busy command to dmlog ring buffer\n");
+    TRACE_INFO("Sending busy command to dmlog ring buffer\n");
     if( !monitor_write_flags(ctx, ctx->ring.flags | DMLOG_FLAG_BUSY) )
     {
         TRACE_ERROR("Failed to send busy command to dmlog ring buffer\n");
@@ -409,7 +409,7 @@ bool monitor_send_busy_command(monitor_ctx_t *ctx)
  */
 bool monitor_send_not_busy_command(monitor_ctx_t *ctx)
 {
-    TRACE_VERBOSE("Sending not busy command to dmlog ring buffer\n");
+    TRACE_INFO("Sending not busy command to dmlog ring buffer\n");
     if(!monitor_write_flags(ctx, ctx->ring.flags & ~DMLOG_FLAG_BUSY) )
     {
         TRACE_ERROR("Failed to send not busy command to dmlog ring buffer\n");
