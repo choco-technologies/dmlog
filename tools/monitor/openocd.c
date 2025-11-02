@@ -163,6 +163,8 @@ static bool parse_memory_line(const char *line, uint8_t *buffer, size_t *offset,
         else
         {
             TRACE_ERROR("Buffer overflow while parsing memory line\n");
+            TRACE_ERROR("Line: %s\n", line);
+            TRACE_ERROR("Offset: %zu, Max Length: %zu\n", *offset, max_length);
             return false;
         }
 
@@ -243,6 +245,12 @@ int openocd_connect(opencd_addr_t *addr)
                 return -1;
             }
             TRACE_INFO("Connected to OpenOCD at %s:%d\n", addr->host, addr->port);
+
+            if(openocd_set_debug_level(sock, 0) < 0)
+            {
+                TRACE_WARN("Failed to set OpenOCD debug level\n");
+            }
+
             return sock;
         }
 
@@ -300,6 +308,22 @@ int openocd_disconnect(int socket)
 }
 
 /**
+ * @brief Set OpenOCD debug level
+ * 
+ * @param socket Socket file descriptor
+ * @param level Debug level to set
+ * @return int 0 on success, -1 on failure
+ */
+int openocd_set_debug_level(int socket, int level)
+{
+    char cmd[64];
+    snprintf(cmd, sizeof(cmd), "debug_level %d", level);
+    char response[256] = {0};
+    TRACE_INFO("Setting OpenOCD debug level to %d\n", level);
+    return openocd_send_command(socket, cmd, response, sizeof(response));
+}
+
+/**
  * @brief Send command to OpenOCD server and receive response
  * 
  * @param socket Socket file descriptor
@@ -343,6 +367,11 @@ int openocd_send_command(int socket, const char *cmd, char *response, size_t res
             // Still waiting for echo
             continue;
         }
+        if(strstr(chunk, "failure") || strstr(chunk, "failed") || strstr(chunk, "error") || strstr(chunk, "Polling"))
+        {
+            TRACE_WARN("OpenOCD: %s\n", chunk);
+            continue;
+        }
         if(total_received + received < response_size)
         {
             memcpy(response + total_received, chunk, received);
@@ -350,7 +379,9 @@ int openocd_send_command(int socket, const char *cmd, char *response, size_t res
         }
         else
         {
-            TRACE_ERROR("Response buffer overflow\n");
+            TRACE_ERROR("Response buffer overflow.\n");
+            TRACE_ERROR("Line: %s\n", chunk);
+            TRACE_ERROR("Response: %s\n", response);
             return -1;
         }
     }
@@ -372,7 +403,7 @@ int openocd_read_memory(int socket, uint32_t address, void *buffer, size_t lengt
     char cmd[64];
     size_t word_count = (length + 3) / 4; // Number of 32-bit words to read
     snprintf(cmd, sizeof(cmd), "mdw 0x%08X %zu", address, word_count);
-    size_t response_size = length * 5 + 128;
+    size_t response_size = length * 5 * 2 + 128;
     char* response = malloc(response_size); // Allocate enough space for response
     if(response == NULL)
     {
@@ -392,6 +423,7 @@ int openocd_read_memory(int socket, uint32_t address, void *buffer, size_t lengt
     {
         data++;
     }
+    char* original_data = data + 1;
     while(!isdigit((unsigned char)*data))
     {
         data++;

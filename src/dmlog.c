@@ -1,6 +1,7 @@
 #include "dmlog.h"
 #include "dmod.h"
 #include <string.h>
+#include <stdarg.h>
 
 struct dmlog_ctx
 {
@@ -13,6 +14,9 @@ struct dmlog_ctx
     size_t lock_recursion;
     uint8_t buffer[4];
 };
+
+/* Default DMLoG context */
+static dmlog_ctx_t default_ctx = NULL;
 
 /**
  * @brief Lock the DMLoG context for exclusive access.
@@ -218,6 +222,31 @@ static bool write_entry_to_head(dmlog_ctx_t ctx, dmlog_entry_t* entry, const cha
         }
     }
     return true;
+}
+
+/**
+ * @brief Set the provided DMLoG context as the default context.
+ * 
+ * @param ctx DMLoG context to set as default.
+ */
+void dmlog_set_as_default(dmlog_ctx_t ctx)
+{
+    Dmod_EnterCritical();
+    default_ctx = ctx;
+    Dmod_ExitCritical();
+}
+
+/**
+ * @brief Get the current default DMLoG context.
+ * 
+ * @return dmlog_ctx_t Current default DMLoG context.
+ */
+dmlog_ctx_t dmlog_get_default(void)
+{
+    Dmod_EnterCritical();
+    dmlog_ctx_t ctx = default_ctx;
+    Dmod_ExitCritical();
+    return ctx;
 }
 
 /**
@@ -603,3 +632,34 @@ void dmlog_clear(dmlog_ctx_t ctx)
     }
     Dmod_ExitCritical();
 }
+
+#ifndef DMLOG_DONT_IMPLEMENT_DMOD_API
+/**
+ * @brief Built-in printf function for DMLoG.
+ * 
+ * @param Format Format string.
+ * @param ... Additional arguments.
+ * @return int Number of characters written, or -1 on failure.
+ */
+DMOD_INPUT_API_DECLARATION( Dmod, 1.0, int  ,_Printf, ( const char* Format, ... ) )
+{
+    dmlog_ctx_t ctx = dmlog_get_default();
+    if(ctx == NULL)
+    {
+        return -1;
+    }
+    va_list args;
+    va_start(args, Format);
+    char temp_buffer[DMOD_LOG_MAX_ENTRY_SIZE];
+    int written = Dmod_VSnPrintf(temp_buffer, sizeof(temp_buffer), Format, args);
+    va_end(args);
+
+    if(written > 0)
+    {
+        dmlog_putsn(ctx, temp_buffer, (size_t)written);
+    }
+
+    return written;
+}
+
+#endif // DMLOG_DONT_IMPLEMENT_DMOD_API

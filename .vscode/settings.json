@@ -5,6 +5,7 @@
         "inet.h": "c",
         "stdio.h": "c",
         "types.h": "c",
-        "openocd.h": "c"
+        "openocd.h": "c",
+        "dmod.h": "c"
     }
 }
