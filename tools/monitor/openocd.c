@@ -175,6 +175,36 @@ static bool parse_memory_line(const char *line, uint8_t *buffer, size_t *offset,
 }
 
 /**
+ * @brief Read a line from the OpenOCD socket
+ * 
+ * @param socket Socket file descriptor
+ * @param buffer Buffer to store the line
+ * @param max_length Maximum length of the buffer
+ * @return number of bytes read on success, -1 on failure
+ */
+static size_t read_line(int socket, char *buffer, size_t max_length)
+{
+    size_t offset = 0;
+    while(offset < max_length - 1)
+    {
+        ssize_t n = recv(socket, &buffer[offset], 1, MSG_WAITFORONE);
+        if(n <= 0)
+        {
+            TRACE_ERROR("Failed to read line from OpenOCD\n");
+            return -1;
+        }
+        if(buffer[offset] == '\n' || buffer[offset] == '>')
+        {
+            offset++;
+            break;
+        }
+        offset++;
+    }
+    print_response((uint8_t *)buffer, offset);
+    return offset;
+}
+
+/**
  * @brief Connect to OpenOCD server
  * 
  * @param addr Pointer to opencd_addr_t structure with host and port
@@ -281,23 +311,36 @@ int openocd_disconnect(int socket)
 int openocd_send_command(int socket, const char *cmd, char *response, size_t response_size)
 {
     char line[512];
-    sprintf(line, "%s\n", cmd);
+    sprintf(line, "%s\r\n", cmd);
     print_command(cmd);
-    ssize_t sent = send(socket, line, strlen(line), 0);
+    size_t cmd_len = strlen(line);
+    ssize_t sent = send(socket, line, cmd_len, 0);
     if(sent < 0)
     {
         TRACE_ERROR("Failed to send command to OpenOCD\n");
         return -1;
     }
     
+    bool echo_received = false;
     char chunk[512] = {0};
     int total_received = 0;
     while(!contains_prompt(chunk, total_received))
     {
         memset(chunk, 0, sizeof(chunk));
-        ssize_t received = recv(socket, chunk, sizeof(chunk) - 1, MSG_WAITFORONE);
+        ssize_t received = read_line(socket, chunk, sizeof(chunk));
         if(received < 0)
         {
+            continue;
+        }
+        if(!echo_received && strstr(chunk, cmd))
+        {
+            // Skip echo line
+            echo_received = true;
+            continue;
+        }
+        if(!echo_received)
+        {
+            // Still waiting for echo
             continue;
         }
         if(total_received + received < response_size)
@@ -311,7 +354,6 @@ int openocd_send_command(int socket, const char *cmd, char *response, size_t res
             return -1;
         }
     }
-    print_response(response, total_received);
 
     return 0;
 }

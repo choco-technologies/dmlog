@@ -6,6 +6,35 @@
 #include "trace.h"
 
 /**
+ * @brief Get the amount of data left in the dmlog ring buffer
+ * 
+ * @param ctx Pointer to the monitor context
+ * @return uint32_t Number of bytes left in the buffer
+ */
+static uint32_t get_left_data_in_buffer(monitor_ctx_t* ctx)
+{
+    if(ctx->ring.head_offset >= ctx->tail_offset)
+    {
+        return ctx->ring.head_offset - ctx->tail_offset;
+    }
+    else
+    {
+        return ctx->ring.buffer_size - (ctx->tail_offset - ctx->ring.head_offset);
+    }
+}
+
+/**
+ * @brief Check if the dmlog ring buffer is empty
+ * 
+ * @param ctx Pointer to the monitor context
+ * @return true if buffer is empty, false otherwise
+ */
+static bool is_buffer_empty(monitor_ctx_t* ctx)
+{
+    return ctx->ring.head_offset == ctx->tail_offset;
+}
+
+/**
  * @brief Read data from the dmlog ring buffer, handling wrap-around
  * 
  * @param ctx Pointer to the monitor context
@@ -15,6 +44,11 @@
  */
 static bool read_from_buffer(monitor_ctx_t* ctx, void* dst, size_t length)
 {
+    if(get_left_data_in_buffer(ctx) < length)
+    {
+        TRACE_ERROR("Not enough data in buffer to read %zu bytes\n", length);
+        return false;
+    }
     uint32_t left_size = ctx->ring.buffer_size - ctx->tail_offset;
     if(length <= left_size)
     {
@@ -114,7 +148,7 @@ bool monitor_update_ring(monitor_ctx_t *ctx)
     }
     if(ctx->ring.magic != DMLOG_MAGIC_NUMBER)
     {
-        TRACE_ERROR("Invalid dmlog ring buffer magic number: 0x%08X\n", ctx->ring.magic);
+        TRACE_ERROR("Invalid dmlog ring buffer magic number: 0x%08X != 0x%08X\n", ctx->ring.magic, DMLOG_MAGIC_NUMBER);
         return false;
     }
     TRACE_VERBOSE("Dmlog Ring Buffer: head_offset=%u, tail_offset=%u, buffer_size=%x, buffer_address=%lx\n",
@@ -155,6 +189,26 @@ bool monitor_wait_until_not_busy(monitor_ctx_t *ctx)
         usleep(10000); // Sleep briefly to avoid busy-waiting
     }
     return success;
+}
+
+/**
+ * @brief Wait for new data to be available in the dmlog ring buffer
+ * 
+ * @param ctx Pointer to the monitor context
+ * @return true on success, false on failure
+ */
+bool monitor_wait_for_new_data(monitor_ctx_t *ctx)
+{
+    monitor_wait_until_not_busy(ctx);
+    while(is_buffer_empty(ctx))
+    {
+        if(!monitor_update_ring(ctx))
+        {
+            return false;
+        }
+        usleep(10000); // Sleep briefly to avoid busy-waiting
+    }
+    return true;
 }
 
 /**
@@ -214,8 +268,11 @@ const char *monitor_get_entry_buffer(monitor_ctx_t *ctx)
 void monitor_run(monitor_ctx_t *ctx)
 {
     const char* entry_data = monitor_get_entry_buffer(ctx);
-    while(monitor_update_entry(ctx))
+    while(monitor_wait_for_new_data(ctx) )
     {
-        printf("%s", entry_data);
+        while(!is_buffer_empty(ctx) && monitor_update_entry(ctx))
+        {
+            printf("%s", entry_data);
+        }
     }
 }
