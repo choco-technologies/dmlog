@@ -238,6 +238,7 @@ dmlog_ctx_t dmlog_create(void *buffer, dmlog_index_t buffer_size)
     }
     memset(buffer, 0, buffer_size);
     dmlog_index_t control_size  = (dmlog_index_t)((uintptr_t)ctx->buffer - (uintptr_t)ctx);
+    DMOD_ASSERT_MSG(buffer_size > control_size, "Buffer size too small for control structure");
     ctx->ring.magic             = DMLOG_MAGIC_NUMBER;
     ctx->ring.buffer_size       = buffer_size - control_size;
     ctx->ring.buffer            = (uint64_t)((uintptr_t)ctx->buffer);

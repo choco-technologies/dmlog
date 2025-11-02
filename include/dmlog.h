@@ -16,7 +16,7 @@
 
 /* Maximum size of a single log message */
 #ifndef DMOD_LOG_MAX_ENTRY_SIZE
-#define DMOD_LOG_MAX_ENTRY_SIZE    512
+#define DMOD_LOG_MAX_ENTRY_SIZE    100
 #endif
 
 #ifndef DMLOG_PACKED
