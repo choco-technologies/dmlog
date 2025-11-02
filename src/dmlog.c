@@ -225,6 +225,17 @@ static bool write_entry_to_head(dmlog_ctx_t ctx, dmlog_entry_t* entry, const cha
 }
 
 /**
+ * @brief Calculate the required size for a DMLoG context with the given buffer size.
+ * 
+ * @param buffer_size Size of the log buffer in bytes.
+ * @return size_t Required size for the DMLoG context.
+ */
+size_t dmlog_get_required_size(dmlog_index_t buffer_size)
+{
+    return sizeof(struct dmlog_ctx) + buffer_size - sizeof(((dmlog_ctx_t)0)->buffer);
+}
+
+/**
  * @brief Set the provided DMLoG context as the default context.
  * 
  * @param ctx DMLoG context to set as default.
@@ -488,7 +499,7 @@ bool dmlog_flush(dmlog_ctx_t ctx)
         context_lock(ctx);
         dmlog_entry_t entry;
         entry.magic = DMLOG_ENTRY_MAGIC_NUMBER;
-        entry.id = ctx->next_id++;
+        entry.id = ++ctx->next_id;
         entry.length = (uint32_t)ctx->write_entry_offset;
         result = write_entry_to_head(ctx, &entry, ctx->write_buffer);
         ctx->write_entry_offset = 0;

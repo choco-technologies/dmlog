@@ -23,12 +23,14 @@ void usage(const char *progname)
     printf("  --verbose     Enable verbose output (equivalent to --trace-level verbose)\n");
     printf("  --time        Show timestamps with log entries\n");
     printf("  --blocking    Use blocking mode for reading log entries\n");
+    printf("  --snapshot    Enable snapshot mode to reduce target reads\n");
 }
 
 int main(int argc, char *argv[])
 {
     bool show_timestamps = false;
     bool blocking_mode = false;
+    bool snapshot_mode = false;
     uint32_t ring_buffer_address = 0x20010000; // Default address
     opencd_addr_t openocd_addr;
     strncpy(openocd_addr.host, OPENOCD_DEFAULT_HOST, sizeof(openocd_addr.host));
@@ -95,6 +97,10 @@ int main(int argc, char *argv[])
         {
             blocking_mode = true;
         }
+        else if(strcmp(argv[i], "--snapshot") == 0)
+        {
+            snapshot_mode = true;
+        }
         else
         {
             TRACE_ERROR("Unknown option: %s\n", argv[i]);
@@ -103,7 +109,7 @@ int main(int argc, char *argv[])
         }
     }
 
-    monitor_ctx_t *ctx = monitor_connect(&openocd_addr, ring_buffer_address);
+    monitor_ctx_t *ctx = monitor_connect(&openocd_addr, ring_buffer_address, snapshot_mode);
     if(ctx == NULL)
     {
         TRACE_ERROR("Failed to connect to monitor\n");

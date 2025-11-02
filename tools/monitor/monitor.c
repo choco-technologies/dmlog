@@ -88,9 +88,10 @@ static bool read_from_buffer(monitor_ctx_t* ctx, void* dst, size_t length)
  * 
  * @param addr Pointer to OpenOCD address structure
  * @param ring_address Address of the dmlog ring buffer in target memory
+ * @param snapshot_mode Whether to use snapshot mode to reduce target reads
  * @return monitor_ctx_t* Pointer to initialized monitor context, or NULL on failure
  */
-monitor_ctx_t *monitor_connect(opencd_addr_t *addr, uint32_t ring_address)
+monitor_ctx_t *monitor_connect(opencd_addr_t *addr, uint32_t ring_address, bool snapshot_mode)
 {
     monitor_ctx_t *ctx = malloc(sizeof(monitor_ctx_t));
     if(ctx == NULL)
@@ -107,12 +108,29 @@ monitor_ctx_t *monitor_connect(opencd_addr_t *addr, uint32_t ring_address)
         return NULL;
     }
 
-    ctx->ring_address = ring_address;
+    ctx->ring_address  = ring_address;
+    ctx->snapshot_mode = snapshot_mode;
 
     if(!monitor_update_ring(ctx))
     {
         monitor_disconnect(ctx);
         return NULL;
+    }
+    if(snapshot_mode)
+    {
+        ctx->snapshot_size = dmlog_get_required_size(ctx->ring.buffer_size);
+        ctx->dmlog_ctx = malloc(ctx->snapshot_size);
+        if(ctx->dmlog_ctx == NULL)
+        {
+            TRACE_ERROR("Failed to allocate memory for local snapshot\n");
+            monitor_disconnect(ctx);
+            return NULL;
+        }
+    }
+    else 
+    {
+        ctx->dmlog_ctx = NULL;
+        ctx->snapshot_size = 0;
     }
 
     ctx->tail_offset = ctx->ring.tail_offset;
@@ -278,6 +296,61 @@ const char *monitor_get_entry_buffer(monitor_ctx_t *ctx)
 }
 
 /**
+ * @brief Load a snapshot of the dmlog ring buffer from the target
+ * 
+ * @param ctx Pointer to the monitor context
+ * @param blocking_mode Whether to use blocking mode for reading
+ * @return true on success, false on failure
+ */
+bool monitor_load_snapshot(monitor_ctx_t *ctx, bool blocking_mode)
+{
+    if(ctx->dmlog_ctx == NULL)
+    {
+        TRACE_ERROR("Snapshot mode not enabled, cannot load snapshot\n");
+        return false;
+    }
+
+    if(blocking_mode && !monitor_send_busy_command(ctx))
+    {
+        TRACE_ERROR("Failed to send busy command to dmlog ring buffer\n");
+        return false;
+    }
+    else if(!blocking_mode && !monitor_wait_until_not_busy(ctx))
+    {
+        TRACE_ERROR("Failed to wait until dmlog ring buffer is not busy\n");
+        return false;
+    }
+
+    if(openocd_read_memory(ctx->socket, ctx->ring_address, ctx->dmlog_ctx, ctx->snapshot_size) < 0)
+    {
+        TRACE_ERROR("Failed to read dmlog snapshot from target\n");
+        return false;
+    }
+
+    if(blocking_mode && !monitor_send_not_busy_command(ctx))
+    {
+        TRACE_ERROR("Failed to send not busy command to dmlog ring buffer\n");
+        return false;
+    }
+
+    if(!dmlog_is_valid(ctx->dmlog_ctx))
+    {
+        TRACE_ERROR("Invalid dmlog snapshot received\n");
+        return false;
+    }
+
+    dmlog_ring_t* ring = (void*)ctx->dmlog_ctx;
+    TRACE_INFO("Dmlog Snapshot: head_offset=%u, tail_offset=%u, buffer_size=%x latest_id=%u\n",
+        ring->head_offset,
+        ring->tail_offset,
+        ring->buffer_size, 
+        ring->latest_id);
+
+    TRACE_INFO("Dmlog snapshot loaded successfully\n");
+    return true;
+}
+
+/**
  * @brief Run the monitor loop (not implemented)
  * 
  * @param ctx Pointer to the monitor context
@@ -286,46 +359,77 @@ const char *monitor_get_entry_buffer(monitor_ctx_t *ctx)
  */
 void monitor_run(monitor_ctx_t *ctx, bool show_timestamps, bool blocking_mode)
 {
-    const char* entry_data = monitor_get_entry_buffer(ctx);
-    while(monitor_wait_for_new_data(ctx) )
+    if(ctx->snapshot_mode)
     {
-        usleep(100000); // Sleep briefly to allow data to accumulate
-        while(!is_buffer_empty(ctx))
+        TRACE_INFO("Monitoring in snapshot mode\n");
+        while(monitor_load_snapshot(ctx, blocking_mode))
         {
-            if(!monitor_update_entry(ctx, blocking_mode))
+            while(dmlog_read_next(ctx->dmlog_ctx))
             {
-                if(!monitor_synchronize(ctx))
+                const char* entry_data = dmlog_get_ref_buffer(ctx->dmlog_ctx);
+                if(show_timestamps)
                 {
-                    TRACE_ERROR("Failed to synchronize monitor context with target dmlog ring buffer\n");
-                    if(!monitor_send_clear_command(ctx))
+                    time_t now = time(NULL);
+                    struct tm *local_time = localtime(&now);
+                    printf("[%02d:%02d:%02d] %s", 
+                           local_time->tm_hour, 
+                           local_time->tm_min, 
+                           local_time->tm_sec, 
+                           entry_data);
+                }
+                else
+                {
+                    printf("%s", entry_data);
+                }
+                usleep(300000); 
+            }
+        }
+        TRACE_INFO("Exiting snapshot monitoring loop\n");
+    }
+    else 
+    {
+        TRACE_INFO("Monitoring in live mode\n");
+        const char* entry_data = monitor_get_entry_buffer(ctx);
+        while(monitor_wait_for_new_data(ctx) )
+        {
+            usleep(100000); // Sleep briefly to allow data to accumulate
+            while(!is_buffer_empty(ctx))
+            {
+                if(!monitor_update_entry(ctx, blocking_mode))
+                {
+                    if(!monitor_synchronize(ctx))
                     {
-                        TRACE_ERROR("Failed to send clear command to dmlog ring buffer\n");
-                        return;
+                        TRACE_ERROR("Failed to synchronize monitor context with target dmlog ring buffer\n");
+                        if(!monitor_send_clear_command(ctx))
+                        {
+                            TRACE_ERROR("Failed to send clear command to dmlog ring buffer\n");
+                            return;
+                        }
                     }
                 }
-            }
-            if(ctx->current_entry.id < ctx->last_entry_id)
-            {
-                continue; // No new entry
-            }
-            if(strlen(entry_data) == 0)
-            {
-                continue;
-            }
-            if(show_timestamps)
-            {
-                time_t now = time(NULL);
-                struct tm *local_time = localtime(&now);
-                printf("[%02d:%02d:%02d] <%u> %s", 
-                       local_time->tm_hour, 
-                       local_time->tm_min, 
-                       local_time->tm_sec, 
-                       ctx->current_entry.id,
-                       entry_data);
-            }
-            else
-            {
-                printf("<%u> %s", ctx->current_entry.id, entry_data);
+                if(ctx->current_entry.id < ctx->last_entry_id)
+                {
+                    continue; // No new entry
+                }
+                if(strlen(entry_data) == 0)
+                {
+                    continue;
+                }
+                if(show_timestamps)
+                {
+                    time_t now = time(NULL);
+                    struct tm *local_time = localtime(&now);
+                    printf("[%02d:%02d:%02d] <%u> %s", 
+                           local_time->tm_hour, 
+                           local_time->tm_min, 
+                           local_time->tm_sec, 
+                           ctx->current_entry.id,
+                           entry_data);
+                }
+                else
+                {
+                    printf("<%u> %s", ctx->current_entry.id, entry_data);
+                }
             }
         }
     }
