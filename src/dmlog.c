@@ -319,6 +319,11 @@ bool dmlog_putc(dmlog_ctx_t ctx, char c)
     if(dmlog_is_valid(ctx))
     {
         context_lock(ctx);
+        if(ctx->ring.flags & DMLOG_FLAG_CLEAR_BUFFER)
+        {
+            dmlog_clear(ctx);
+            ctx->ring.flags &= ~DMLOG_FLAG_CLEAR_BUFFER;
+        }
         if(dmlog_left_entry_space(ctx) == 0)
         {
             dmlog_flush(ctx);

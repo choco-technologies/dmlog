@@ -22,11 +22,13 @@ void usage(const char *progname)
     printf("  --trace-level Set trace level (error, warn, info, verbose)\n");
     printf("  --verbose     Enable verbose output (equivalent to --trace-level verbose)\n");
     printf("  --time        Show timestamps with log entries\n");
+    printf("  --blocking    Use blocking mode for reading log entries\n");
 }
 
 int main(int argc, char *argv[])
 {
     bool show_timestamps = false;
+    bool blocking_mode = false;
     uint32_t ring_buffer_address = 0x20010000; // Default address
     opencd_addr_t openocd_addr;
     strncpy(openocd_addr.host, OPENOCD_DEFAULT_HOST, sizeof(openocd_addr.host));
@@ -89,6 +91,10 @@ int main(int argc, char *argv[])
         {
             show_timestamps = true;
         }
+        else if(strcmp(argv[i], "--blocking") == 0)
+        {
+            blocking_mode = true;
+        }
         else
         {
             TRACE_ERROR("Unknown option: %s\n", argv[i]);
@@ -104,7 +110,7 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    monitor_run(ctx, show_timestamps);
+    monitor_run(ctx, show_timestamps, blocking_mode);
 
     // Main monitoring loop would go here
     monitor_disconnect(ctx);

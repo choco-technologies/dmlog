@@ -18,5 +18,6 @@ extern int openocd_read_welcome(int socket);
 extern int openocd_disconnect(int socket);
 extern int openocd_send_command(int socket, const char *cmd, char *response, size_t response_size);
 extern int openocd_read_memory(int socket, uint32_t address, void *buffer, size_t length);
+extern int openocd_write_memory(int socket, uint32_t address, const void *buffer, size_t length);
 
 #endif // OPENOCD_H

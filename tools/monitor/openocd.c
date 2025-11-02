@@ -412,3 +412,45 @@ int openocd_read_memory(int socket, uint32_t address, void *buffer, size_t lengt
     free(response);
     return 0;
 }
+
+/**
+ * @brief Write memory to target via OpenOCD
+ * 
+ * @param socket Socket file descriptor
+ * @param address Memory address to write to
+ * @param buffer Buffer containing data to write
+ * @param length Number of bytes to write
+ * @return int 0 on success, -1 on failure
+ */
+int openocd_write_memory(int socket, uint32_t address, const void *buffer, size_t length)
+{
+    size_t word_count = (length + 3) / 4; // Number of 32-bit words to write
+    char* cmd = malloc(64 + word_count * 9); // "mww " + address + count + words
+    if(cmd == NULL)
+    {
+        TRACE_ERROR("Failed to allocate memory for write command\n");
+        return -1;
+    }
+
+    size_t offset = 0;
+    size_t cmd_offset = snprintf(cmd, 64, "mww 0x%08X %zu", address, word_count);
+    while(offset < length)
+    {
+        uint32_t word = 0;
+        size_t bytes_to_copy = (length - offset >= 4) ? 4 : (length - offset);
+        memcpy(&word, (const uint8_t*)buffer + offset, bytes_to_copy);
+        cmd_offset += snprintf(cmd + cmd_offset, 10, " %08X", word);
+        offset += bytes_to_copy;
+    }
+
+    char response[256] = {0};
+    int result = 0;
+    if(openocd_send_command(socket, cmd, response, sizeof(response)) < 0)
+    {
+        TRACE_ERROR("Failed to send write memory command\n");
+        result = -1;
+    }
+
+    free(cmd);
+    return result;
+}

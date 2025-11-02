@@ -98,6 +98,7 @@ monitor_ctx_t *monitor_connect(opencd_addr_t *addr, uint32_t ring_address)
         TRACE_ERROR("Failed to allocate memory for monitor context\n");
         return NULL;
     }
+    memset(ctx, 0, sizeof(monitor_ctx_t));
 
     ctx->socket = openocd_connect(addr);
     if(ctx->socket < 0)
@@ -175,7 +176,7 @@ bool monitor_wait_until_not_busy(monitor_ctx_t *ctx)
 {
     bool success = false;
 
-    while(true)
+    while(!ctx->owns_busy_flag)
     {
         if(!(ctx->ring.flags & DMLOG_FLAG_BUSY))
         {
@@ -188,7 +189,6 @@ bool monitor_wait_until_not_busy(monitor_ctx_t *ctx)
             success = false;
             break;
         }
-        usleep(10000); // Sleep briefly to avoid busy-waiting
     }
     return success;
 }
@@ -217,11 +217,21 @@ bool monitor_wait_for_new_data(monitor_ctx_t *ctx)
  * @brief Update the current dmlog entry from the target
  * 
  * @param ctx Pointer to the monitor context
+ * @param blocking_mode Whether to use blocking mode for reading log entries
  * @return true on success, false on failure
  */
-bool monitor_update_entry(monitor_ctx_t *ctx)
+bool monitor_update_entry(monitor_ctx_t *ctx, bool blocking_mode)
 {
-    monitor_wait_until_not_busy(ctx);
+    if(blocking_mode && !monitor_send_busy_command(ctx))
+    {
+        TRACE_ERROR("Failed to send busy command to dmlog ring buffer\n");
+        return false;
+    }
+    else if(!blocking_mode && !monitor_wait_until_not_busy(ctx))
+    {
+        TRACE_ERROR("Failed to wait until dmlog ring buffer is not busy\n");
+        return false;
+    }
 
     uint32_t entry_address = (uint32_t)((uintptr_t)ctx->ring.buffer) + ctx->tail_offset;
     if(!read_from_buffer(ctx, &ctx->current_entry, sizeof(dmlog_entry_t)))
@@ -248,6 +258,12 @@ bool monitor_update_entry(monitor_ctx_t *ctx)
     ctx->entry_buffer[ctx->current_entry.length] = '\0'; // Null-terminate
     TRACE_VERBOSE("Dmlog Entry ID: %u, Length: %u\n", ctx->current_entry.id, ctx->current_entry.length);
 
+    if(blocking_mode && !monitor_send_not_busy_command(ctx))
+    {
+        TRACE_ERROR("Failed to send not busy command to dmlog ring buffer\n");
+        return false;
+    }
+
     return true;
 }
 
@@ -267,14 +283,19 @@ const char *monitor_get_entry_buffer(monitor_ctx_t *ctx)
  * 
  * @param ctx Pointer to the monitor context
  * @param show_timestamps Whether to show timestamps with log entries
+ * @param blocking_mode Whether to use blocking mode for reading log entries
  */
-void monitor_run(monitor_ctx_t *ctx, bool show_timestamps)
+void monitor_run(monitor_ctx_t *ctx, bool show_timestamps, bool blocking_mode)
 {
     const char* entry_data = monitor_get_entry_buffer(ctx);
     while(monitor_wait_for_new_data(ctx) )
     {
-        while(!is_buffer_empty(ctx) && monitor_update_entry(ctx))
+        while(!is_buffer_empty(ctx))
         {
+            if(!monitor_update_entry(ctx, blocking_mode))
+            {
+                monitor_synchronize(ctx);
+            }
             if(strlen(entry_data) == 0)
             {
                 continue;
@@ -295,4 +316,108 @@ void monitor_run(monitor_ctx_t *ctx, bool show_timestamps)
             }
         }
     }
+}
+
+/**
+ * @brief Write flags to the dmlog ring buffer on the target
+ * 
+ * @param ctx Pointer to the monitor context
+ * @param flags Flags to write
+ * @return true on success, false on failure
+ */
+bool monitor_write_flags(monitor_ctx_t *ctx, uint32_t flags)
+{
+    if(!monitor_wait_until_not_busy(ctx))
+    {
+        TRACE_ERROR("Dmlog ring buffer is busy, cannot write flags\n");
+        return false;
+    }
+
+    if(openocd_write_memory(ctx->socket, ctx->ring_address + offsetof(dmlog_ring_t, flags), &flags, sizeof(uint32_t)) < 0)
+    {
+        TRACE_ERROR("Failed to write dmlog ring buffer flags to target\n");
+        return false;
+    }
+
+    if(!monitor_update_ring(ctx))
+    {
+        TRACE_ERROR("Failed to update dmlog ring buffer after writing flags\n");
+        return false;
+    }
+
+    return ctx->ring.flags == flags;
+}
+
+/**
+ * @brief Send a clear command to the dmlog ring buffer on the target
+ * 
+ * @param ctx Pointer to the monitor context
+ * @return true on success, false on failure
+ */
+bool monitor_send_clear_command(monitor_ctx_t *ctx)
+{
+    TRACE_INFO("Sending clear command to dmlog ring buffer\n");
+    return monitor_write_flags(ctx, ctx->ring.flags | DMLOG_FLAG_CLEAR_BUFFER);
+}
+
+/**
+ * @brief Send a busy command to the dmlog ring buffer on the target
+ * 
+ * @param ctx Pointer to the monitor context
+ * @return true on success, false on failure
+ */
+bool monitor_send_busy_command(monitor_ctx_t *ctx)
+{
+    TRACE_VERBOSE("Sending busy command to dmlog ring buffer\n");
+    if( !monitor_write_flags(ctx, ctx->ring.flags | DMLOG_FLAG_BUSY) )
+    {
+        TRACE_ERROR("Failed to send busy command to dmlog ring buffer\n");
+        return false;
+    }
+    ctx->owns_busy_flag = true;
+    return true;
+}
+
+/**
+ * @brief Synchronize the monitor context with the target dmlog ring buffer
+ * 
+ * This function sends a clear command to the target dmlog ring buffer
+ * and updates the local tail offset to match the target's tail offset.
+ * 
+ * @param ctx Pointer to the monitor context
+ * @return true on success, false on failure
+ */
+bool monitor_send_not_busy_command(monitor_ctx_t *ctx)
+{
+    TRACE_VERBOSE("Sending not busy command to dmlog ring buffer\n");
+    if(!monitor_write_flags(ctx, ctx->ring.flags & ~DMLOG_FLAG_BUSY) )
+    {
+        TRACE_ERROR("Failed to send not busy command to dmlog ring buffer\n");
+        return false;
+    }
+
+    ctx->owns_busy_flag = false;
+    return true;
+}
+
+/**
+ * @brief Synchronize the monitor context with the target dmlog ring buffer
+ * 
+ * This function sends a clear command to the target dmlog ring buffer
+ * and updates the local tail offset to match the target's tail offset.
+ * 
+ * @param ctx Pointer to the monitor context
+ * @return true on success, false on failure
+ */
+bool monitor_synchronize(monitor_ctx_t *ctx)
+{
+    TRACE_INFO("Synchronizing monitor context with target dmlog ring buffer\n");
+    if(!monitor_send_clear_command(ctx))
+    {
+        TRACE_ERROR("Failed to send clear command to dmlog ring buffer\n");
+        return false;
+    }
+    ctx->tail_offset = ctx->ring.tail_offset;
+
+    return true;
 }
