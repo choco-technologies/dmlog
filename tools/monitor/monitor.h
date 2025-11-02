@@ -14,6 +14,8 @@ typedef struct
     dmlog_entry_id_t    last_entry_id;
     char                entry_buffer[DMOD_LOG_MAX_ENTRY_SIZE];
     bool                owns_busy_flag;
+    void*               local_buffer;       // Local copy of the entire buffer
+    size_t              local_buffer_size;  // Size of the local buffer
 } monitor_ctx_t;
 
 monitor_ctx_t* monitor_connect(opencd_addr_t *addr, uint32_t ring_address);

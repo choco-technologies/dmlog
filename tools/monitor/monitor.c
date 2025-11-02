@@ -37,6 +37,75 @@ static bool is_buffer_empty(monitor_ctx_t* ctx)
 }
 
 /**
+ * @brief Read a snapshot of the entire ring buffer from the target into local memory
+ * 
+ * This function reads the entire ring buffer structure and data from the target device
+ * and stores it in the local buffer. This allows us to process all entries locally
+ * without making multiple OpenOCD requests.
+ * 
+ * @param ctx Pointer to the monitor context
+ * @return dmlog_ctx_t Local dmlog context created from the snapshot, or NULL on failure
+ */
+static dmlog_ctx_t read_buffer_snapshot(monitor_ctx_t* ctx)
+{
+    // First, update the ring metadata from the target
+    if(!monitor_update_ring(ctx))
+    {
+        TRACE_ERROR("Failed to update ring buffer metadata\n");
+        return NULL;
+    }
+
+    // Initialize a local dmlog context if not already done
+    // This creates the context structure with proper layout
+    dmlog_ctx_t local_ctx = dmlog_create(ctx->local_buffer, ctx->local_buffer_size);
+    if(local_ctx == NULL)
+    {
+        TRACE_ERROR("Failed to create local dmlog context from snapshot\n");
+        return NULL;
+    }
+
+    // Now read the actual buffer data from the target
+    uint32_t buffer_address = (uint32_t)((uintptr_t)ctx->ring.buffer);
+    uint32_t buffer_size = ctx->ring.buffer_size;
+    
+    // Calculate where the buffer data is in the local context
+    // The buffer starts after the fixed part of dmlog_ctx structure:
+    // dmlog_ring_t + write_buffer + write_entry_offset + read_buffer + read_entry_offset + next_id + lock_recursion
+    size_t ctx_fixed_size = sizeof(dmlog_ring_t) + DMOD_LOG_MAX_ENTRY_SIZE + sizeof(dmlog_index_t) + 
+                           DMOD_LOG_MAX_ENTRY_SIZE + sizeof(dmlog_index_t) + sizeof(dmlog_entry_id_t) + sizeof(size_t);
+    void* local_ring_buffer = (uint8_t*)local_ctx + ctx_fixed_size;
+    
+    if(openocd_read_memory(ctx->socket, buffer_address, local_ring_buffer, buffer_size) < 0)
+    {
+        TRACE_ERROR("Failed to read buffer data from target (address=0x%08X, size=%u)\n", 
+                    buffer_address, buffer_size);
+        return NULL;
+    }
+
+    // Copy the ring control structure from the target to our local context
+    // This includes head_offset, tail_offset, latest_id, etc.
+    // We need to keep the buffer pointer pointing to local memory
+    
+    uint64_t local_buffer_addr = (uint64_t)((uintptr_t)local_ring_buffer);
+    
+    // Copy ring metadata from target, but update buffer pointer to local
+    dmlog_ring_t local_ring_copy = ctx->ring;
+    local_ring_copy.buffer = local_buffer_addr;
+    
+    // Copy the ring structure into the local context
+    // The dmlog_ctx has a ring field at the beginning
+    memcpy(local_ctx, &local_ring_copy, sizeof(dmlog_ring_t));
+
+    TRACE_VERBOSE("Buffer snapshot: head=%u, tail=%u, size=%u, latest_id=%u\n",
+                  ctx->ring.head_offset,
+                  ctx->ring.tail_offset,
+                  ctx->ring.buffer_size,
+                  ctx->ring.latest_id);
+
+    return local_ctx;
+}
+
+/**
  * @brief Read data from the dmlog ring buffer, handling wrap-around
  * 
  * @param ctx Pointer to the monitor context
@@ -117,7 +186,23 @@ monitor_ctx_t *monitor_connect(opencd_addr_t *addr, uint32_t ring_address)
 
     ctx->tail_offset = ctx->ring.tail_offset;
 
-    TRACE_INFO("Connected to dmlog ring buffer at 0x%08X\n", ring_address);
+    // Allocate local buffer to store a snapshot of the entire ring buffer
+    // We need space for the dmlog context structure + the actual buffer
+    // dmlog_create needs: control structure overhead + buffer_size
+    // The overhead is roughly: dmlog_ring_t + 2*DMOD_LOG_MAX_ENTRY_SIZE + other fields + alignment
+    // Let's allocate a safe amount: 512 bytes for overhead + buffer_size
+    ctx->local_buffer_size = 512 + ctx->ring.buffer_size;
+    ctx->local_buffer = malloc(ctx->local_buffer_size);
+    if(ctx->local_buffer == NULL)
+    {
+        TRACE_ERROR("Failed to allocate local buffer of size %zu\n", ctx->local_buffer_size);
+        monitor_disconnect(ctx);
+        return NULL;
+    }
+    memset(ctx->local_buffer, 0, ctx->local_buffer_size);
+
+    TRACE_INFO("Connected to dmlog ring buffer at 0x%08X (buffer size: %u bytes)\n", 
+               ring_address, ctx->ring.buffer_size);
     return ctx;
 }
 
@@ -130,6 +215,10 @@ void monitor_disconnect(monitor_ctx_t *ctx)
 {
     if(ctx)
     {
+        if(ctx->local_buffer)
+        {
+            free(ctx->local_buffer);
+        }
         openocd_disconnect(ctx->socket);
         free(ctx);
         TRACE_INFO("Disconnected from monitor\n");
@@ -278,56 +367,72 @@ const char *monitor_get_entry_buffer(monitor_ctx_t *ctx)
 }
 
 /**
- * @brief Run the monitor loop (not implemented)
+ * @brief Run the monitor loop with snapshot-based reading
+ * 
+ * This function reads the entire buffer every 300ms as a snapshot and processes
+ * all entries from it using the dmlog API. This reduces the number of OpenOCD
+ * requests and improves performance.
  * 
  * @param ctx Pointer to the monitor context
  * @param show_timestamps Whether to show timestamps with log entries
- * @param blocking_mode Whether to use blocking mode for reading log entries
+ * @param blocking_mode Whether to use blocking mode for reading log entries (unused in snapshot mode)
  */
 void monitor_run(monitor_ctx_t *ctx, bool show_timestamps, bool blocking_mode)
 {
-    const char* entry_data = monitor_get_entry_buffer(ctx);
-    while(monitor_wait_for_new_data(ctx) )
+    (void)blocking_mode; // Not used in snapshot mode
+    
+    TRACE_INFO("Starting monitor in snapshot mode (300ms interval)\n");
+    
+    while(true)
     {
-        usleep(100000); // Sleep briefly to allow data to accumulate
-        while(!is_buffer_empty(ctx))
+        // Wait 300ms between buffer snapshots
+        usleep(300000);
+        
+        // Read a snapshot of the entire buffer
+        dmlog_ctx_t local_ctx = read_buffer_snapshot(ctx);
+        if(local_ctx == NULL)
         {
-            if(!monitor_update_entry(ctx, blocking_mode))
+            TRACE_ERROR("Failed to read buffer snapshot, retrying...\n");
+            continue;
+        }
+        
+        // Check if there are any new entries by comparing latest_id
+        // We stored latest_id in ctx->ring during monitor_update_ring
+        if(ctx->ring.latest_id <= ctx->last_entry_id)
+        {
+            // No new entries
+            continue;
+        }
+        
+        // Process all entries in the snapshot using dmlog API
+        char entry_buffer[DMOD_LOG_MAX_ENTRY_SIZE];
+        while(dmlog_read_next(local_ctx))
+        {
+            if(dmlog_gets(local_ctx, entry_buffer, sizeof(entry_buffer)))
             {
-                if(!monitor_synchronize(ctx))
+                // Only print if we have content
+                if(strlen(entry_buffer) > 0)
                 {
-                    TRACE_ERROR("Failed to synchronize monitor context with target dmlog ring buffer\n");
-                    if(!monitor_send_clear_command(ctx))
+                    if(show_timestamps)
                     {
-                        TRACE_ERROR("Failed to send clear command to dmlog ring buffer\n");
-                        return;
+                        time_t now = time(NULL);
+                        struct tm *local_time = localtime(&now);
+                        printf("[%02d:%02d:%02d] %s", 
+                               local_time->tm_hour, 
+                               local_time->tm_min, 
+                               local_time->tm_sec,
+                               entry_buffer);
+                    }
+                    else
+                    {
+                        printf("%s", entry_buffer);
                     }
                 }
             }
-            if(ctx->current_entry.id < ctx->last_entry_id)
-            {
-                continue; // No new entry
-            }
-            if(strlen(entry_data) == 0)
-            {
-                continue;
-            }
-            if(show_timestamps)
-            {
-                time_t now = time(NULL);
-                struct tm *local_time = localtime(&now);
-                printf("[%02d:%02d:%02d] <%u> %s", 
-                       local_time->tm_hour, 
-                       local_time->tm_min, 
-                       local_time->tm_sec, 
-                       ctx->current_entry.id,
-                       entry_data);
-            }
-            else
-            {
-                printf("<%u> %s", ctx->current_entry.id, entry_data);
-            }
         }
+        
+        // Update the last entry ID we've seen
+        ctx->last_entry_id = ctx->ring.latest_id;
     }
 }
 
