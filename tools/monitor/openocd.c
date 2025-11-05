@@ -411,6 +411,7 @@ int openocd_read_memory(int socket, uint32_t address, void *buffer, size_t lengt
         TRACE_ERROR("Failed to allocate memory for response\n");
         return -1;
     }
+    char* end_response = response + response_size;
     memset(response, 0, response_size);
 
     if(openocd_send_command(socket, cmd, response, response_size) < 0)
@@ -420,17 +421,17 @@ int openocd_read_memory(int socket, uint32_t address, void *buffer, size_t lengt
     }
 
     char* data = response;
-    while(*data)
+    while(data < end_response && *data)
     {
         data++;
     }
     char* original_data = data + 1;
-    while(!isdigit((unsigned char)*data))
+    while(data < end_response && !isdigit((unsigned char)*data))
     {
         data++;
     }
     size_t offset = 0;
-    while(parse_memory_line(data, buffer, &offset, length))
+    while(data < end_response && parse_memory_line(data, buffer, &offset, length))
     {
         while(*data && *data != '\n')
         {
