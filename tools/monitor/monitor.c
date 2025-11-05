@@ -268,7 +268,6 @@ bool monitor_update_entry(monitor_ctx_t *ctx, bool blocking_mode)
         }
         
         uint8_t byte;
-        uint32_t address = (uint32_t)((uintptr_t)ctx->ring.buffer) + ctx->tail_offset;
         if(!read_from_buffer(ctx, &byte, 1))
         {
             TRACE_ERROR("Failed to read byte from buffer at offset %u\n", ctx->tail_offset);
@@ -425,7 +424,7 @@ void monitor_run(monitor_ctx_t *ctx, bool show_timestamps, bool blocking_mode)
                         }
                     }
                 }
-                if(ctx->current_entry.id < ctx->last_entry_id)
+                if(ctx->ring.latest_id <= ctx->last_entry_id)
                 {
                     continue; // No new entry
                 }
@@ -441,7 +440,7 @@ void monitor_run(monitor_ctx_t *ctx, bool show_timestamps, bool blocking_mode)
                            local_time->tm_hour, 
                            local_time->tm_min, 
                            local_time->tm_sec, 
-                           ctx->current_entry.id,
+                           ctx->ring.latest_id,
                            entry_data);
                 }
                 else
