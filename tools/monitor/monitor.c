@@ -46,11 +46,13 @@ static bool is_buffer_empty(monitor_ctx_t* ctx)
  */
 static bool read_from_buffer(monitor_ctx_t* ctx, void* dst, size_t length)
 {
-    if(get_left_data_in_buffer(ctx) < length)
+    dmlog_index_t available_data = get_left_data_in_buffer(ctx);
+    if(available_data == 0)
     {
-        TRACE_ERROR("Not enough data in buffer to read %zu bytes\n", length);
+        TRACE_ERROR("Buffer is empty\n", length);
         return false;
     }
+    length = length > available_data ? available_data : length;
     uint32_t left_size = ctx->ring.buffer_size - ctx->tail_offset;
     if(length <= left_size)
     {
@@ -215,6 +217,7 @@ bool monitor_wait_until_not_busy(monitor_ctx_t *ctx)
             success = false;
             break;
         }
+        usleep(10000);
     }
     return success;
 }
@@ -228,12 +231,15 @@ bool monitor_wait_until_not_busy(monitor_ctx_t *ctx)
 bool monitor_wait_for_new_data(monitor_ctx_t *ctx)
 {
     monitor_wait_until_not_busy(ctx);
-    while(is_buffer_empty(ctx) || ctx->last_entry_id == ctx->ring.latest_id)
+    bool empty = is_buffer_empty(ctx);
+    while(empty)
     {
+        usleep(10000);
         if(!monitor_update_ring(ctx))
         {
             return false;
         }
+        empty = is_buffer_empty(ctx);
     }
     return true;
 }
@@ -259,29 +265,14 @@ bool monitor_update_entry(monitor_ctx_t *ctx, bool blocking_mode)
     }
 
     uint32_t entry_address = (uint32_t)((uintptr_t)ctx->ring.buffer) + ctx->tail_offset;
-    if(!read_from_buffer(ctx, &ctx->current_entry, sizeof(dmlog_entry_t)))
-    {
-        TRACE_ERROR("Failed to read dmlog entry from target\n");
-        return false;
-    }
-    if(ctx->current_entry.magic != DMLOG_ENTRY_MAGIC_NUMBER)
-    {
-        TRACE_ERROR("Invalid dmlog entry magic number: 0x%08X\n", ctx->current_entry.magic);
-        return false;
-    }
-    if(ctx->current_entry.length > DMOD_LOG_MAX_ENTRY_SIZE)
-    {
-        TRACE_ERROR("Dmlog entry length %u exceeds maximum %u\n", ctx->current_entry.length, DMOD_LOG_MAX_ENTRY_SIZE);
-        return false;
-    }
-    if(!read_from_buffer(ctx, ctx->entry_buffer, ctx->current_entry.length) )
+    if(!read_from_buffer(ctx, ctx->entry_buffer, DMOD_LOG_MAX_ENTRY_SIZE) )
     {
         TRACE_ERROR("Failed to read dmlog entry data from target\n");
         return false;
     }
-    ctx->last_entry_id = ctx->current_entry.id;
-    ctx->entry_buffer[ctx->current_entry.length] = '\0'; // Null-terminate
-    TRACE_VERBOSE("Dmlog Entry ID: %u, Length: %u\n", ctx->current_entry.id, ctx->current_entry.length);
+    size_t entry_length = strnlen(ctx->entry_buffer, DMOD_LOG_MAX_ENTRY_SIZE - 1);
+    ctx->entry_buffer[entry_length] = '\0'; // Null-terminate
+    TRACE_VERBOSE("Dmlog Length: %u\n", entry_length);
 
     if(blocking_mode && !monitor_send_not_busy_command(ctx))
     {
@@ -349,11 +340,10 @@ bool monitor_load_snapshot(monitor_ctx_t *ctx, bool blocking_mode)
 
     dmlog_ring_t* ring = (void*)ctx->dmlog_ctx;
     ring->flags = 0;
-    TRACE_VERBOSE("Dmlog Snapshot: head_offset=%u, tail_offset=%u, buffer_size=%x latest_id=%u\n",
+    TRACE_VERBOSE("Dmlog Snapshot: head_offset=%u, tail_offset=%u, buffer_size=%x\n",
         ring->head_offset,
         ring->tail_offset,
-        ring->buffer_size, 
-        ring->latest_id);
+        ring->buffer_size);
 
     TRACE_VERBOSE("Dmlog snapshot loaded successfully\n");
     return true;
@@ -416,10 +406,6 @@ void monitor_run(monitor_ctx_t *ctx, bool show_timestamps, bool blocking_mode)
                         }
                     }
                 }
-                if(ctx->current_entry.id < ctx->last_entry_id)
-                {
-                    continue; // No new entry
-                }
                 if(strlen(entry_data) == 0)
                 {
                     continue;
@@ -428,11 +414,10 @@ void monitor_run(monitor_ctx_t *ctx, bool show_timestamps, bool blocking_mode)
                 {
                     time_t now = time(NULL);
                     struct tm *local_time = localtime(&now);
-                    printf("[%02d:%02d:%02d] <%u> %s", 
+                    printf("[%02d:%02d:%02d] %s", 
                            local_time->tm_hour, 
                            local_time->tm_min, 
                            local_time->tm_sec, 
-                           ctx->current_entry.id,
                            entry_data);
                 }
                 else
@@ -563,7 +548,9 @@ bool monitor_synchronize(monitor_ctx_t *ctx)
         TRACE_ERROR("Failed to update dmlog ring buffer\n");
         return false;
     }
-    ctx->tail_offset    = ctx->ring.tail_offset;
 
+    TRACE_INFO("Searching for valid dmlog entry to synchronize tail offset\n");
+    
+    ctx->tail_offset    = ctx->ring.tail_offset;
     return true;
 }

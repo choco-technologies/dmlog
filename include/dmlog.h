@@ -27,29 +27,8 @@
 #define DMLOG_FLAG_CLEAR_BUFFER  0x00000001  /* Set to clear buffer, cleared after execution */
 #define DMLOG_FLAG_BUSY          0x00000002  /* Buffer busy flag - set during write operations */
 
-/* Type definition for log entry IDs */
-typedef uint32_t dmlog_entry_id_t;
-
 /* Type definition for log entry indices */
 typedef uint32_t dmlog_index_t;
-
-/**
- * @brief Log entry header structure
- * 
- * Each entry in the buffer has this header followed by the message data:
- * [magic(4)] [entry_id(4)] [length(2)] [data(length)]
- * 
- * - magic: Magic number for validation (0x454E5452 = "ENTR")
- * - id: Unique incrementing ID to detect new entries
- * - length: Actual length of the message data (max 65535 bytes)
- */
-typedef struct 
-{
-    volatile uint32_t           magic;
-    volatile dmlog_entry_id_t   id;
-    volatile uint32_t           length;
-} DMLOG_PACKED dmlog_entry_t;
-
 
 /**
  * @brief Ring buffer control structure
@@ -69,7 +48,6 @@ typedef struct
 typedef struct 
 {
     volatile uint32_t           magic;
-    volatile dmlog_entry_id_t   latest_id;
     volatile uint32_t           flags;
     volatile dmlog_index_t      head_offset;
     volatile dmlog_index_t      tail_offset;
