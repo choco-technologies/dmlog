@@ -95,14 +95,13 @@ static dmlog_index_t get_free_space(dmlog_ctx_t ctx)
  * @param out_offset Pointer to store the updated tail offset.
  * @return true if the buffer is empty, false otherwise.
  */
-static bool read_byte_from_tail(dmlog_ctx_t ctx, void* out_byte, volatile dmlog_index_t* out_offset)
+static bool read_byte_from_tail(dmlog_ctx_t ctx, void* out_byte)
 {
-    dmlog_index_t tail_offset = *out_offset;
-    bool empty = (tail_offset == ctx->ring.head_offset);
+    bool empty = (ctx->ring.tail_offset == ctx->ring.head_offset);
     if(!empty)
     {
-        *((uint8_t*)out_byte) = ctx->buffer[tail_offset];
-        *out_offset = (tail_offset + 1) % ctx->ring.buffer_size;
+        *((uint8_t*)out_byte) = ctx->buffer[ctx->ring.tail_offset];
+        ctx->ring.tail_offset = (ctx->ring.tail_offset + 1) % ctx->ring.buffer_size;
     }
     return empty;
 }
@@ -381,7 +380,7 @@ bool dmlog_flush(dmlog_ctx_t ctx)
         {
             if(get_free_space(ctx) == 0)
             {
-                read_byte_from_tail(ctx, NULL, &ctx->ring.tail_offset); // Discard oldest byte
+                read_byte_from_tail(ctx, NULL); // Discard oldest byte
             }
             if(!write_byte_to_tail(ctx, (uint8_t)ctx->write_buffer[i]))
             {
@@ -415,7 +414,7 @@ bool dmlog_read_next(dmlog_ctx_t ctx)
         for(dmlog_index_t i = 0; i < DMOD_LOG_MAX_ENTRY_SIZE - 1; i++)
         {
             uint8_t byte;
-            if(read_byte_from_tail(ctx, &byte, &ctx->ring.tail_offset))
+            if(read_byte_from_tail(ctx, &byte))
             {
                 // Buffer empty
                 break;
