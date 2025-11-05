@@ -399,10 +399,12 @@ bool dmlog_puts(dmlog_ctx_t ctx, const char *s)
     {
         context_lock(ctx);
         size_t len = strlen(s);
+        result = true; // Assume success
         for(size_t i = 0; i < len; i++)
         {
             if(!dmlog_putc(ctx, s[i]))
             {
+                result = false; // Failed
                 break;
             }
         }
