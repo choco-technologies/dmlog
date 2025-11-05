@@ -10,10 +10,6 @@
 #   define DMLOG_MAGIC_NUMBER      0x444D4C4F 
 #endif
 
-#ifndef DMLOG_ENTRY_MAGIC_NUMBER
-#   define DMLOG_ENTRY_MAGIC_NUMBER 0x454E5452 
-#endif
-
 /* Maximum size of a single log message */
 #ifndef DMOD_LOG_MAX_ENTRY_SIZE
 #define DMOD_LOG_MAX_ENTRY_SIZE    100
@@ -33,23 +29,6 @@ typedef uint32_t dmlog_entry_id_t;
 /* Type definition for log entry indices */
 typedef uint32_t dmlog_index_t;
 
-/**
- * @brief Log entry header structure
- * 
- * Each entry in the buffer has this header followed by the message data:
- * [magic(4)] [entry_id(4)] [length(2)] [data(length)]
- * 
- * - magic: Magic number for validation (0x454E5452 = "ENTR")
- * - id: Unique incrementing ID to detect new entries
- * - length: Actual length of the message data (max 65535 bytes)
- */
-typedef struct 
-{
-    volatile uint32_t           magic;
-    volatile dmlog_entry_id_t   id;
-    volatile uint32_t           length;
-} DMLOG_PACKED dmlog_entry_t;
-
 
 /**
  * @brief Ring buffer control structure
@@ -58,13 +37,13 @@ typedef struct
  * - magic: Magic number for validation (0x444D4F44 = "DMOD")
  * - latest_id: Most recent log entry ID (for easy monitoring)
  * - flags: Command/status flags (bit 0: clear buffer)
- * - head_offset: Offset to the newest entry in the buffer
- * - tail_offset: Offset to the oldest entry in the buffer
+ * - head_offset: Offset to write the next byte in the buffer
+ * - tail_offset: Offset to read the next byte from the buffer
  * - buffer_size: Total size of the buffer in bytes
- * - buffer: Variable-length entries stored here
+ * - buffer: Raw data buffer (characters only, no entry structures)
  * 
- * Buffer layout: Entries are stored sequentially with their headers.
- * When the buffer wraps around, the oldest entries are overwritten.
+ * Buffer layout: Data is stored as raw bytes. Entries are delimited by newlines '\n'.
+ * When the buffer wraps around, the oldest data is overwritten.
  */
 typedef struct 
 {

@@ -258,30 +258,39 @@ bool monitor_update_entry(monitor_ctx_t *ctx, bool blocking_mode)
         return false;
     }
 
-    uint32_t entry_address = (uint32_t)((uintptr_t)ctx->ring.buffer) + ctx->tail_offset;
-    if(!read_from_buffer(ctx, &ctx->current_entry, sizeof(dmlog_entry_t)))
+    // Read bytes from buffer until newline or max length
+    size_t bytes_read = 0;
+    while(bytes_read < DMOD_LOG_MAX_ENTRY_SIZE - 1)
     {
-        TRACE_ERROR("Failed to read dmlog entry from target\n");
-        return false;
+        if(ctx->tail_offset == ctx->ring.head_offset)
+        {
+            break; // No more data
+        }
+        
+        uint8_t byte;
+        uint32_t address = (uint32_t)((uintptr_t)ctx->ring.buffer) + ctx->tail_offset;
+        if(!read_from_buffer(ctx, &byte, 1))
+        {
+            TRACE_ERROR("Failed to read byte from buffer at offset %u\n", ctx->tail_offset);
+            return false;
+        }
+        
+        ctx->entry_buffer[bytes_read++] = (char)byte;
+        
+        if(byte == '\n')
+        {
+            break; // End of entry
+        }
     }
-    if(ctx->current_entry.magic != DMLOG_ENTRY_MAGIC_NUMBER)
+    
+    ctx->entry_buffer[bytes_read] = '\0'; // Null-terminate
+    
+    if(bytes_read > 0)
     {
-        TRACE_ERROR("Invalid dmlog entry magic number: 0x%08X\n", ctx->current_entry.magic);
-        return false;
+        ctx->last_entry_id = ctx->ring.latest_id;
     }
-    if(ctx->current_entry.length > DMOD_LOG_MAX_ENTRY_SIZE)
-    {
-        TRACE_ERROR("Dmlog entry length %u exceeds maximum %u\n", ctx->current_entry.length, DMOD_LOG_MAX_ENTRY_SIZE);
-        return false;
-    }
-    if(!read_from_buffer(ctx, ctx->entry_buffer, ctx->current_entry.length) )
-    {
-        TRACE_ERROR("Failed to read dmlog entry data from target\n");
-        return false;
-    }
-    ctx->last_entry_id = ctx->current_entry.id;
-    ctx->entry_buffer[ctx->current_entry.length] = '\0'; // Null-terminate
-    TRACE_VERBOSE("Dmlog Entry ID: %u, Length: %u\n", ctx->current_entry.id, ctx->current_entry.length);
+    
+    TRACE_VERBOSE("Dmlog Entry: Length: %zu\n", bytes_read);
 
     if(blocking_mode && !monitor_send_not_busy_command(ctx))
     {
@@ -289,7 +298,7 @@ bool monitor_update_entry(monitor_ctx_t *ctx, bool blocking_mode)
         return false;
     }
 
-    return true;
+    return bytes_read > 0;
 }
 
 /**
