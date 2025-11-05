@@ -95,7 +95,7 @@ static dmlog_index_t get_free_space(dmlog_ctx_t ctx)
  * @param out_offset Pointer to store the updated tail offset.
  * @return true if the buffer is empty, false otherwise.
  */
-static bool read_byte_from_tail(dmlog_ctx_t ctx, void* out_byte, dmlog_index_t* out_offset)
+static bool read_byte_from_tail(dmlog_ctx_t ctx, void* out_byte, volatile dmlog_index_t* out_offset)
 {
     dmlog_index_t tail_offset = *out_offset;
     bool empty = (tail_offset == ctx->ring.head_offset);
