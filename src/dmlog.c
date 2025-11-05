@@ -100,7 +100,10 @@ static bool read_byte_from_tail(dmlog_ctx_t ctx, void* out_byte)
     bool empty = (ctx->ring.tail_offset == ctx->ring.head_offset);
     if(!empty)
     {
-        *((uint8_t*)out_byte) = ctx->buffer[ctx->ring.tail_offset];
+        if(out_byte != NULL)
+        {
+            *((uint8_t*)out_byte) = ctx->buffer[ctx->ring.tail_offset];
+        }
         ctx->ring.tail_offset = (ctx->ring.tail_offset + 1) % ctx->ring.buffer_size;
     }
     return empty;
@@ -303,7 +306,7 @@ bool dmlog_puts(dmlog_ctx_t ctx, const char *s)
     {
         context_lock(ctx);
         size_t len = strlen(s);
-        result = len > 0; // Assume success
+        result = true; // Initialize as success (empty string is valid)
         for(size_t i = 0; i < len; i++)
         {
             if(!dmlog_putc(ctx, s[i]))
@@ -312,7 +315,7 @@ bool dmlog_puts(dmlog_ctx_t ctx, const char *s)
                 break;
             }
         }
-        if(result && s[len - 1] != '\n')
+        if(result && len > 0 && s[len - 1] != '\n')
         {
             result = dmlog_flush(ctx);
         }
@@ -384,6 +387,7 @@ bool dmlog_flush(dmlog_ctx_t ctx)
     if(dmlog_is_valid(ctx))
     {
         context_lock(ctx);
+        result = true; // Initialize as success
         for(dmlog_index_t i = 0; i < ctx->write_entry_offset; i++)
         {
             if(get_free_space(ctx) == 0)
@@ -395,9 +399,11 @@ bool dmlog_flush(dmlog_ctx_t ctx)
                 result = false; // Buffer full
                 break;
             }
-            result = true;
         }
-        write_byte_to_tail(ctx, (uint8_t)'\0'); // Null-terminate entry
+        if(result) // Only add null terminator if all bytes were written successfully
+        {
+            write_byte_to_tail(ctx, (uint8_t)'\0'); // Null-terminate entry
+        }
         memset(ctx->write_buffer, 0, DMOD_LOG_MAX_ENTRY_SIZE);
         ctx->write_entry_offset = 0;
 
