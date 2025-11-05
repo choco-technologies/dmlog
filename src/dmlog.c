@@ -84,7 +84,7 @@ static dmlog_index_t get_free_space(dmlog_ctx_t ctx)
     {
         free_space = ctx->ring.tail_offset - ctx->ring.head_offset;
     }
-    return free_space;  
+    return free_space > 0 ? free_space - 1 : 0; // Leave one byte empty to distinguish full/empty
 }
 
 /**
@@ -397,6 +397,7 @@ bool dmlog_flush(dmlog_ctx_t ctx)
             }
             result = true;
         }
+        write_byte_to_tail(ctx, (uint8_t)'\0'); // Null-terminate entry
         memset(ctx->write_buffer, 0, DMOD_LOG_MAX_ENTRY_SIZE);
         ctx->write_entry_offset = 0;
 

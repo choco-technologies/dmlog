@@ -49,7 +49,7 @@ static bool read_from_buffer(monitor_ctx_t* ctx, void* dst, size_t length)
     dmlog_index_t available_data = get_left_data_in_buffer(ctx);
     if(available_data == 0)
     {
-        TRACE_ERROR("Buffer is empty\n", length);
+        TRACE_ERROR("Buffer is empty\n");
         return false;
     }
     length = length > available_data ? available_data : length;
@@ -264,15 +264,13 @@ bool monitor_update_entry(monitor_ctx_t *ctx, bool blocking_mode)
         return false;
     }
 
+    memset(ctx->entry_buffer, 0, sizeof(ctx->entry_buffer));
     uint32_t entry_address = (uint32_t)((uintptr_t)ctx->ring.buffer) + ctx->tail_offset;
     if(!read_from_buffer(ctx, ctx->entry_buffer, DMOD_LOG_MAX_ENTRY_SIZE) )
     {
         TRACE_ERROR("Failed to read dmlog entry data from target\n");
         return false;
     }
-    size_t entry_length = strnlen(ctx->entry_buffer, DMOD_LOG_MAX_ENTRY_SIZE - 1);
-    ctx->entry_buffer[entry_length] = '\0'; // Null-terminate
-    TRACE_VERBOSE("Dmlog Length: %u\n", entry_length);
 
     if(blocking_mode && !monitor_send_not_busy_command(ctx))
     {
