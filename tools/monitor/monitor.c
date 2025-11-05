@@ -437,7 +437,7 @@ void monitor_run(monitor_ctx_t *ctx, bool show_timestamps, bool blocking_mode)
                 }
                 else
                 {
-                    printf("<%u> %s", ctx->current_entry.id, entry_data);
+                    printf("%s", entry_data);
                 }
             }
         }
