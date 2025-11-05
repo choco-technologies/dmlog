@@ -10,7 +10,6 @@ struct dmlog_ctx
     dmlog_index_t write_entry_offset;
     char read_buffer[DMOD_LOG_MAX_ENTRY_SIZE];
     dmlog_index_t read_entry_offset;
-    dmlog_entry_id_t next_id;
     uint32_t lock_recursion;
     uint8_t buffer[4];
 };
@@ -85,7 +84,7 @@ static dmlog_index_t get_free_space(dmlog_ctx_t ctx)
     {
         free_space = ctx->ring.tail_offset - ctx->ring.head_offset;
     }
-    return free_space;  
+    return free_space > 0 ? free_space - 1 : 0; // Leave one byte empty to distinguish full/empty
 }
 
 /**
@@ -96,14 +95,16 @@ static dmlog_index_t get_free_space(dmlog_ctx_t ctx)
  * @param out_offset Pointer to store the updated tail offset.
  * @return true if the buffer is empty, false otherwise.
  */
-static bool read_byte_from_tail(dmlog_ctx_t ctx, void* out_byte, dmlog_index_t* out_offset)
+static bool read_byte_from_tail(dmlog_ctx_t ctx, void* out_byte)
 {
-    dmlog_index_t tail_offset = *out_offset;
-    bool empty = (tail_offset == ctx->ring.head_offset);
+    bool empty = (ctx->ring.tail_offset == ctx->ring.head_offset);
     if(!empty)
     {
-        *((uint8_t*)out_byte) = ctx->buffer[tail_offset];
-        *out_offset = (tail_offset + 1) % ctx->ring.buffer_size;
+        if(out_byte != NULL)
+        {
+            *((uint8_t*)out_byte) = ctx->buffer[ctx->ring.tail_offset];
+        }
+        ctx->ring.tail_offset = (ctx->ring.tail_offset + 1) % ctx->ring.buffer_size;
     }
     return empty;
 }
@@ -125,106 +126,6 @@ static bool write_byte_to_tail(dmlog_ctx_t ctx, uint8_t byte)
     }
     ctx->buffer[ctx->ring.head_offset] = byte;
     ctx->ring.head_offset = next_head;
-    return true;
-}
-
-/**
- * @brief Read a log entry from the tail of the ring buffer.
- * 
- * @param ctx DMLoG context.
- * @param out_entry Pointer to store the read log entry header.
- * @param out_data Pointer to store the read log entry data.
- * @param max_data_len Maximum length of the data buffer.
- * @return true on success, false if the buffer is empty or corrupted.
- */
-static bool read_entry_from_tail(dmlog_ctx_t ctx, dmlog_entry_t* out_entry, char* out_data, size_t max_data_len)
-{
-    if(ctx->ring.tail_offset == ctx->ring.head_offset)
-    {
-        return false; // Buffer empty
-    }
-
-    dmlog_index_t temp_offset = ctx->ring.tail_offset;
-    uint8_t* entry_ptr = (uint8_t*)out_entry;
-    size_t header_size = sizeof(dmlog_entry_t); 
-    for(size_t i = 0; i < header_size; i++)
-    {
-        if(read_byte_from_tail(ctx, &entry_ptr[i], &temp_offset))
-        {
-            dmlog_clear(ctx); // Corrupted entry, clear buffer
-            return false; // Buffer empty
-        }
-    }
-
-    if(out_entry->magic != DMLOG_ENTRY_MAGIC_NUMBER)
-    {
-        dmlog_clear(ctx); // Corrupted entry, clear buffer
-        return false;
-    }
-
-    size_t data_len = out_entry->length;
-    size_t len_to_read = (data_len < max_data_len - 1) ? data_len : (max_data_len - 1);
-    for(size_t i = 0; i < len_to_read; i++)
-    {
-        uint8_t dummy;
-        uint8_t* dst = out_data != NULL ? (uint8_t*)&out_data[i] : &dummy;
-        if(read_byte_from_tail(ctx, dst, &temp_offset))
-        {
-            dmlog_clear(ctx); // Corrupted entry, clear buffer
-            return false; // Buffer empty
-        }
-    }
-    if(out_data != NULL)
-    {
-        out_data[len_to_read] = '\0'; // Null-terminate
-    }
-    // Skip remaining data if any
-    for(size_t i = len_to_read; i < data_len; i++)
-    {
-        uint8_t dummy;
-        if(read_byte_from_tail(ctx, &dummy, &temp_offset))
-        {
-            dmlog_clear(ctx); // Corrupted entry, clear buffer
-            return false; // Buffer empty   
-        }
-    }
-    ctx->ring.tail_offset = temp_offset;
-    return true;
-}
-
-/**
- * @brief Write a log entry to the head of the ring buffer.
- * 
- * @param ctx DMLoG context.
- * @param entry Pointer to the log entry header to write.
- * @param data Pointer to the log entry data to write.
- * @return true on success, false if the buffer is full.
- */
-static bool write_entry_to_head(dmlog_ctx_t ctx, dmlog_entry_t* entry, const char* data)
-{
-    size_t total_size = sizeof(dmlog_entry_t) + entry->length;
-    dmlog_index_t free_space = dmlog_get_free_space(ctx);
-    if(free_space < total_size)
-    {
-        return false; // Not enough space
-    }
-
-    uint8_t* entry_ptr = (uint8_t*)entry;
-    for(size_t i = 0; i < sizeof(dmlog_entry_t); i++)
-    {
-        if(!write_byte_to_tail(ctx, entry_ptr[i]))
-        {
-            return false; // Should not happen
-        }
-    }
-
-    for(size_t i = 0; i < entry->length; i++)
-    {
-        if(!write_byte_to_tail(ctx, (uint8_t)data[i]))
-        {
-            return false; // Should not happen
-        }
-    }
     return true;
 }
 
@@ -293,11 +194,9 @@ dmlog_ctx_t dmlog_create(void *buffer, dmlog_index_t buffer_size)
     ctx->ring.buffer            = (uint64_t)((uintptr_t)ctx->buffer);
     ctx->ring.head_offset       = 0;
     ctx->ring.tail_offset       = 0;
-    ctx->ring.latest_id         = 0;
     ctx->ring.flags             = 0;
     ctx->write_entry_offset     = 0;
     ctx->read_entry_offset      = 0;
-    ctx->next_id                = 0;
     ctx->lock_recursion         = 0;
     Dmod_ExitCritical();
 
@@ -382,6 +281,10 @@ bool dmlog_putc(dmlog_ctx_t ctx, char c)
             ctx->write_buffer[ctx->write_entry_offset++] = c;
             result = true;
         }
+        if(c == '\n')
+        {
+            result = dmlog_flush(ctx);
+        }
         context_unlock(ctx);
     }
     Dmod_ExitCritical();
@@ -403,7 +306,7 @@ bool dmlog_puts(dmlog_ctx_t ctx, const char *s)
     {
         context_lock(ctx);
         size_t len = strlen(s);
-        result = true; // Assume success
+        result = true; // Initialize as success (empty string is valid)
         for(size_t i = 0; i < len; i++)
         {
             if(!dmlog_putc(ctx, s[i]))
@@ -411,6 +314,10 @@ bool dmlog_puts(dmlog_ctx_t ctx, const char *s)
                 result = false; // Failed
                 break;
             }
+        }
+        if(result && len > 0 && s[len - 1] != '\n')
+        {
+            result = dmlog_flush(ctx);
         }
         context_unlock(ctx);
     }
@@ -479,25 +386,27 @@ bool dmlog_flush(dmlog_ctx_t ctx)
     Dmod_EnterCritical();
     if(dmlog_is_valid(ctx))
     {
-        dmlog_index_t required_size = sizeof(dmlog_entry_t) + ctx->write_entry_offset;
-        while(get_free_space(ctx) < required_size)
+        context_lock(ctx);
+        result = true; // Initialize as success
+        for(dmlog_index_t i = 0; i < ctx->write_entry_offset; i++)
         {
-            // Not enough space, remove oldest entry
-            if(!dmlog_read_next(ctx))
+            if(get_free_space(ctx) == 0)
             {
-                // Failed to read old entry, clear buffer
-                dmlog_clear(ctx);
+                read_byte_from_tail(ctx, NULL); // Discard oldest byte
+            }
+            if(!write_byte_to_tail(ctx, (uint8_t)ctx->write_buffer[i]))
+            {
+                result = false; // Buffer full
                 break;
             }
         }
-        context_lock(ctx);
-        dmlog_entry_t entry;
-        entry.magic = DMLOG_ENTRY_MAGIC_NUMBER;
-        entry.id = ++ctx->next_id;
-        entry.length = (uint32_t)ctx->write_entry_offset;
-        result = write_entry_to_head(ctx, &entry, ctx->write_buffer);
+        if(result) // Only add null terminator if all bytes were written successfully
+        {
+            write_byte_to_tail(ctx, (uint8_t)'\0'); // Null-terminate entry
+        }
+        memset(ctx->write_buffer, 0, DMOD_LOG_MAX_ENTRY_SIZE);
         ctx->write_entry_offset = 0;
-        ctx->ring.latest_id = entry.id;
+
         context_unlock(ctx);
     }
     Dmod_ExitCritical();
@@ -518,8 +427,21 @@ bool dmlog_read_next(dmlog_ctx_t ctx)
     {
         wait_for_unlock(ctx);
         context_lock(ctx);
-        dmlog_entry_t old_entry;
-        result = read_entry_from_tail(ctx, &old_entry, ctx->read_buffer, DMOD_LOG_MAX_ENTRY_SIZE);
+        for(dmlog_index_t i = 0; i < DMOD_LOG_MAX_ENTRY_SIZE - 1; i++)
+        {
+            uint8_t byte;
+            if(read_byte_from_tail(ctx, &byte))
+            {
+                // Buffer empty
+                break;
+            }
+            ctx->read_buffer[i] = (char)byte;
+            result = true; // Successfully read entry
+            if(byte == '\0')
+            {
+                break;
+            }
+        }
         ctx->read_entry_offset = 0;
         context_unlock(ctx);
     }
@@ -628,7 +550,6 @@ void dmlog_clear(dmlog_ctx_t ctx)
         ctx->ring.buffer = (uint64_t)((uintptr_t)ctx->buffer);
         ctx->write_entry_offset = 0;
         ctx->read_entry_offset = 0; 
-        ctx->next_id = 0;
         memset(ctx->write_buffer, 0, DMOD_LOG_MAX_ENTRY_SIZE);
         memset(ctx->read_buffer, 0, DMOD_LOG_MAX_ENTRY_SIZE);
         memset(ctx->buffer, 0, ctx->ring.buffer_size);

@@ -9,9 +9,7 @@ typedef struct
     dmlog_ring_t        ring;
     int                 socket;
     uint32_t            ring_address;
-    dmlog_entry_t       current_entry;
     dmlog_index_t       tail_offset;
-    dmlog_entry_id_t    last_entry_id;
     char                entry_buffer[DMOD_LOG_MAX_ENTRY_SIZE];
     bool                owns_busy_flag;
     dmlog_ctx_t         dmlog_ctx;
