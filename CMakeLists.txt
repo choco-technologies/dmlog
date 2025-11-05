@@ -14,6 +14,20 @@ project(dmlog
 set(DMLOG_DONT_IMPLEMENT_DMOD_API OFF CACHE BOOL "Do not implement DMOD API in dmheap library")
 
 # ======================================================================
+#               Coverage Configuration
+# ======================================================================
+option(ENABLE_COVERAGE "Enable code coverage" OFF)
+
+if(ENABLE_COVERAGE)
+    message(STATUS "Code coverage enabled")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} --coverage")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --coverage")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} --coverage")
+    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} --coverage")
+    # Note: Don't set CMAKE_STATIC_LINKER_FLAGS as 'ar' doesn't support --coverage
+endif()
+
+# ======================================================================
 #               Fetch DMOD repository
 # ======================================================================
 include(FetchContent)
@@ -34,6 +48,11 @@ if(NOT TARGET dmod_inc)
     set(DMOD_BUILD_EXAMPLES OFF CACHE BOOL "Build examples")
     set(DMOD_BUILD_TOOLS OFF CACHE BOOL "Build tools")
     set(DMOD_BUILD_TEMPLATES OFF CACHE BOOL "Build templates")
+    
+    # Pass coverage flags to DMOD if enabled
+    if(ENABLE_COVERAGE)
+        set(DMOD_ENABLE_COVERAGE ON CACHE BOOL "Enable DMOD coverage")
+    endif()
 
     FetchContent_MakeAvailable(dmod)
     set(DMOD_DIR ${dmod_SOURCE_DIR} CACHE PATH "DMOD source directory" FORCE)
