@@ -93,15 +93,17 @@ static dmlog_index_t get_free_space(dmlog_ctx_t ctx)
  * 
  * @param ctx DMLoG context.
  * @param out_byte Pointer to store the read byte.
+ * @param out_offset Pointer to store the updated tail offset.
  * @return true if the buffer is empty, false otherwise.
  */
-static bool read_byte_from_tail(dmlog_ctx_t ctx, void* out_byte)
+static bool read_byte_from_tail(dmlog_ctx_t ctx, void* out_byte, dmlog_index_t* out_offset)
 {
-    bool empty = (ctx->ring.tail_offset == ctx->ring.head_offset);
+    dmlog_index_t tail_offset = *out_offset;
+    bool empty = (tail_offset == ctx->ring.head_offset);
     if(!empty)
     {
-        *((uint8_t*)out_byte) = ctx->buffer[ctx->ring.tail_offset];
-        ctx->ring.tail_offset = (ctx->ring.tail_offset + 1) % ctx->ring.buffer_size;
+        *((uint8_t*)out_byte) = ctx->buffer[tail_offset];
+        *out_offset = (tail_offset + 1) % ctx->ring.buffer_size;
     }
     return empty;
 }
@@ -142,11 +144,12 @@ static bool read_entry_from_tail(dmlog_ctx_t ctx, dmlog_entry_t* out_entry, char
         return false; // Buffer empty
     }
 
+    dmlog_index_t temp_offset = ctx->ring.tail_offset;
     uint8_t* entry_ptr = (uint8_t*)out_entry;
     size_t header_size = sizeof(dmlog_entry_t); 
     for(size_t i = 0; i < header_size; i++)
     {
-        if(read_byte_from_tail(ctx, &entry_ptr[i]))
+        if(read_byte_from_tail(ctx, &entry_ptr[i], &temp_offset))
         {
             dmlog_clear(ctx); // Corrupted entry, clear buffer
             return false; // Buffer empty
@@ -165,7 +168,7 @@ static bool read_entry_from_tail(dmlog_ctx_t ctx, dmlog_entry_t* out_entry, char
     {
         uint8_t dummy;
         uint8_t* dst = out_data != NULL ? (uint8_t*)&out_data[i] : &dummy;
-        if(read_byte_from_tail(ctx, dst))
+        if(read_byte_from_tail(ctx, dst, &temp_offset))
         {
             dmlog_clear(ctx); // Corrupted entry, clear buffer
             return false; // Buffer empty
@@ -179,12 +182,13 @@ static bool read_entry_from_tail(dmlog_ctx_t ctx, dmlog_entry_t* out_entry, char
     for(size_t i = len_to_read; i < data_len; i++)
     {
         uint8_t dummy;
-        if(read_byte_from_tail(ctx, &dummy))
+        if(read_byte_from_tail(ctx, &dummy, &temp_offset))
         {
             dmlog_clear(ctx); // Corrupted entry, clear buffer
             return false; // Buffer empty   
         }
     }
+    ctx->ring.tail_offset = temp_offset;
     return true;
 }
 
