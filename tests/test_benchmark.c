@@ -37,6 +37,7 @@ static void test_benchmark_3000_logs(void) {
         snprintf(log_message, sizeof(log_message), 
                  "Log message #%d: This is a test log entry with some data\n", i);
         dmlog_puts(ctx, log_message);
+        dmlog_flush(ctx);
     }
     
     // End timing
@@ -88,6 +89,7 @@ static void test_benchmark_varying_sizes(void) {
     for (int i = 0; i < NUM_LOGS; i++) {
         snprintf(log_message, sizeof(log_message), "Short %d\n", i);
         dmlog_puts(ctx, log_message);
+        dmlog_flush(ctx);
     }
     double small_time = (get_time_us() - start_time) / 1000.0;
     
@@ -99,6 +101,7 @@ static void test_benchmark_varying_sizes(void) {
         snprintf(log_message, sizeof(log_message), 
                  "Medium message %d with some additional content here\n", i);
         dmlog_puts(ctx, log_message);
+        dmlog_flush(ctx);
     }
     double medium_time = (get_time_us() - start_time) / 1000.0;
     
@@ -113,6 +116,7 @@ static void test_benchmark_varying_sizes(void) {
                  "system when dealing with larger message payloads that approach the "
                  "maximum size\n", i);
         dmlog_puts(ctx, log_message);
+        dmlog_flush(ctx);
     }
     double large_time = (get_time_us() - start_time) / 1000.0;
     
@@ -142,6 +146,7 @@ static void test_benchmark_read_performance(void) {
         snprintf(log_message, sizeof(log_message), 
                  "Test log entry number %d for read performance testing\n", i);
         dmlog_puts(ctx, log_message);
+        dmlog_flush(ctx);
     }
     
     // Benchmark reading
@@ -187,6 +192,7 @@ static void test_benchmark_wraparound(void) {
         snprintf(log_message, sizeof(log_message), 
                  "Wraparound test message %d with content\n", i);
         dmlog_puts(ctx, log_message);
+        dmlog_flush(ctx);
     }
     
     double elapsed_ms = (get_time_us() - start_time) / 1000.0;

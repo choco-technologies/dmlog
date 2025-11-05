@@ -24,12 +24,16 @@ int main(void) {
     result = dmlog_puts(ctx, "Hello, World!\n");
     printf("Put string: %s\n", result ? "PASS" : "FAIL");
     
-    // Test 5: Get free space
+    // Test 5: Flush the data
+    result = dmlog_flush(ctx);
+    printf("Flush: %s\n", result ? "PASS" : "FAIL");
+    
+    // Test 6: Get free space
     dmlog_index_t free_space = dmlog_get_free_space(ctx);
     printf("Get free space: %s (free: %u bytes)\n", 
            free_space > 0 ? "PASS" : "FAIL", free_space);
     
-    // Test 6: Read entry
+    // Test 7: Read entry
     result = dmlog_read_next(ctx);
     printf("Read next: %s\n", result ? "PASS" : "FAIL");
     
@@ -42,11 +46,11 @@ int main(void) {
         }
     }
     
-    // Test 7: Clear buffer
+    // Test 8: Clear buffer
     dmlog_clear(ctx);
     printf("Clear: PASS\n");
     
-    // Test 8: Destroy context
+    // Test 9: Destroy context
     dmlog_destroy(ctx);
     printf("Destroy: PASS\n");
     

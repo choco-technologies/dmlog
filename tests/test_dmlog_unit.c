@@ -69,15 +69,21 @@ static void test_string_write(void) {
     // Test writing a simple string
     bool result = dmlog_puts(ctx, "Hello, World!\n");
     ASSERT_TEST(result == true, "Write simple string");
+    result = dmlog_flush(ctx);
+    ASSERT_TEST(result == true, "Flush after puts");
     
     // Test writing an empty string
     result = dmlog_puts(ctx, "");
     ASSERT_TEST(result == true, "Write empty string");
+    result = dmlog_flush(ctx);
+    ASSERT_TEST(result == true, "Flush after empty string");
     
     // Test writing a string with specific length
     const char* test_str = "Test string";
     result = dmlog_putsn(ctx, test_str, 4);
     ASSERT_TEST(result == true, "Write string with length limit");
+    result = dmlog_flush(ctx);
+    ASSERT_TEST(result == true, "Flush after putsn");
     
     // Test writing longer string
     char long_str[256];
@@ -85,6 +91,8 @@ static void test_string_write(void) {
     long_str[sizeof(long_str) - 1] = '\0';
     result = dmlog_puts(ctx, long_str);
     ASSERT_TEST(result == true, "Write long string");
+    result = dmlog_flush(ctx);
+    ASSERT_TEST(result == true, "Flush after long string");
     
     dmlog_destroy(ctx);
 }
@@ -101,6 +109,8 @@ static void test_read_operations(void) {
     const char* test_msg = "Test message\n";
     bool result = dmlog_puts(ctx, test_msg);
     ASSERT_TEST(result == true, "Write test message");
+    result = dmlog_flush(ctx);
+    ASSERT_TEST(result == true, "Flush test message");
     
     // Read the entry
     result = dmlog_read_next(ctx);
@@ -132,6 +142,7 @@ static void test_getc(void) {
     // Write test data
     const char* test_str = "ABC";
     dmlog_puts(ctx, test_str);
+    dmlog_flush(ctx);
     
     // Read entry first
     bool result = dmlog_read_next(ctx);
@@ -165,6 +176,7 @@ static void test_space_management(void) {
     
     // Write some data
     dmlog_puts(ctx, "Some test data\n");
+    dmlog_flush(ctx);
     
     // Check free space decreased
     dmlog_index_t after_write = dmlog_get_free_space(ctx);
@@ -190,6 +202,7 @@ static void test_clear_buffer(void) {
     // Write some data
     dmlog_puts(ctx, "Data to be cleared\n");
     dmlog_puts(ctx, "More data\n");
+    dmlog_flush(ctx);
     
     // Get free space before clear
     dmlog_index_t space_before = dmlog_get_free_space(ctx);
@@ -222,8 +235,11 @@ static void test_multiple_entries(void) {
     const char* msg3 = "Third message\n";
     
     dmlog_puts(ctx, msg1);
+    dmlog_flush(ctx);
     dmlog_puts(ctx, msg2);
+    dmlog_flush(ctx);
     dmlog_puts(ctx, msg3);
+    dmlog_flush(ctx);
     
     // Read them back in order
     char read_buf[256];
@@ -246,28 +262,32 @@ static void test_multiple_entries(void) {
     dmlog_destroy(ctx);
 }
 
-// Test: Auto-flush on newline
+// Test: Manual Flush Test
 static void test_auto_flush(void) {
-    TEST_SECTION("Auto-flush on Newline");
+    TEST_SECTION("Manual Flush Test");
     reset_buffer();
     
     dmlog_ctx_t ctx = dmlog_create(test_buffer, TEST_BUFFER_SIZE);
-    ASSERT_TEST(ctx != NULL, "Create context for auto-flush test");
+    ASSERT_TEST(ctx != NULL, "Create context for manual flush test");
     
-    // Write characters including newline (should auto-flush)
+    // Write characters including newline (now requires manual flush)
     dmlog_putc(ctx, 'T');
     dmlog_putc(ctx, 'e');
     dmlog_putc(ctx, 's');
     dmlog_putc(ctx, 't');
-    dmlog_putc(ctx, '\n');  // This should trigger flush
+    dmlog_putc(ctx, '\n');  
     
-    // Should be able to read immediately
-    bool result = dmlog_read_next(ctx);
-    ASSERT_TEST(result == true, "Auto-flush allows immediate read");
+    // Manual flush required now
+    bool result = dmlog_flush(ctx);
+    ASSERT_TEST(result == true, "Manual flush succeeds");
+    
+    // Should be able to read after manual flush
+    result = dmlog_read_next(ctx);
+    ASSERT_TEST(result == true, "Manual flush allows immediate read");
     
     char read_buf[256];
     dmlog_gets(ctx, read_buf, sizeof(read_buf));
-    ASSERT_TEST(strcmp(read_buf, "Test\n") == 0, "Auto-flushed data is correct");
+    ASSERT_TEST(strcmp(read_buf, "Test\n") == 0, "Manually flushed data is correct");
     
     dmlog_destroy(ctx);
 }
@@ -289,6 +309,7 @@ static void test_buffer_wraparound(void) {
     for (int i = 0; i < 50; i++) {
         snprintf(msg, sizeof(msg), "Entry %d\n", i);
         if (dmlog_puts(ctx, msg)) {
+            dmlog_flush(ctx);
             entries_written++;
         }
     }
@@ -322,16 +343,21 @@ static void test_edge_cases(void) {
     // Test with empty string
     bool result = dmlog_puts(ctx, "");
     ASSERT_TEST(result == true, "Put empty string");
+    result = dmlog_flush(ctx);
+    ASSERT_TEST(result == true, "Flush empty string");
     
     // Test with zero-length putsn
     result = dmlog_putsn(ctx, "test", 0);
     ASSERT_TEST(result == true, "Write zero-length string");
+    result = dmlog_flush(ctx);
+    ASSERT_TEST(result == true, "Flush zero-length string");
     
     // Clear buffer before testing small buffer read
     dmlog_clear(ctx);
     
     // Test gets with small buffer
     dmlog_puts(ctx, "Long test message\n");
+    dmlog_flush(ctx);
     dmlog_read_next(ctx);
     char small_buf[8];
     result = dmlog_gets(ctx, small_buf, sizeof(small_buf));
@@ -357,6 +383,7 @@ static void test_stress(void) {
         char msg[128];
         snprintf(msg, sizeof(msg), "Stress test message number %d\n", i);
         if (dmlog_puts(ctx, msg)) {
+            dmlog_flush(ctx);
             write_count++;
         }
     }
@@ -395,6 +422,8 @@ static void test_max_entry_size(void) {
     
     bool result = dmlog_puts(ctx, large_msg);
     ASSERT_TEST(result == true, "Write maximum size entry");
+    result = dmlog_flush(ctx);
+    ASSERT_TEST(result == true, "Flush maximum size entry");
     
     // Read it back
     result = dmlog_read_next(ctx);
