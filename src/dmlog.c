@@ -465,6 +465,11 @@ bool dmlog_flush(dmlog_ctx_t ctx)
             {
                 ctx->write_buffer[ctx->write_entry_offset++] = '\n';
             }
+            else
+            {
+                // Buffer full, replace last character with newline
+                ctx->write_buffer[DMOD_LOG_MAX_ENTRY_SIZE - 1] = '\n';
+            }
         }
         
         // Write the buffered data to the ring buffer
