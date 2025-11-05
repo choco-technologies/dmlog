@@ -17,6 +17,7 @@ typedef struct
     dmlog_ctx_t         dmlog_ctx;
     bool                snapshot_mode;
     size_t              snapshot_size;
+    time_t              last_update_time;
 } monitor_ctx_t;
 
 monitor_ctx_t* monitor_connect(opencd_addr_t *addr, uint32_t ring_address, bool snapshot_mode);

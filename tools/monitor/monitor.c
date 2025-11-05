@@ -162,6 +162,7 @@ void monitor_disconnect(monitor_ctx_t *ctx)
  */
 bool monitor_update_ring(monitor_ctx_t *ctx)
 {
+    dmlog_index_t previous_head = ctx->ring.head_offset;
     if(openocd_read_memory(ctx->socket, ctx->ring_address, &ctx->ring, sizeof(dmlog_ring_t)) < 0)
     {
         TRACE_ERROR("Failed to read dmlog ring buffer from target\n");
@@ -172,11 +173,18 @@ bool monitor_update_ring(monitor_ctx_t *ctx)
         TRACE_ERROR("Invalid dmlog ring buffer magic number: 0x%08X != 0x%08X\n", ctx->ring.magic, DMLOG_MAGIC_NUMBER);
         return false;
     }
-    TRACE_VERBOSE("Dmlog Ring Buffer: head_offset=%u, tail_offset=%u, buffer_size=%x, buffer_address=%lx\n",
+    dmlog_index_t number_of_new_bytes = ctx->ring.head_offset >= previous_head ?
+    ctx->ring.head_offset - previous_head :
+    ctx->ring.buffer_size - (previous_head - ctx->ring.head_offset);
+    time_t current_time = time(NULL);
+    double update_interval = difftime(current_time, ctx->last_update_time);
+    ctx->last_update_time = current_time;
+    double data_rate = update_interval > 0 ? (double)number_of_new_bytes / update_interval : 0.0;
+    TRACE_VERBOSE("Dmlog Ring Buffer Updated: head_offset=%u, tail_offset=%u, new_bytes=%u, data_rate=%.2f bytes/sec\n",
         ctx->ring.head_offset,
         ctx->ring.tail_offset,
-        ctx->ring.buffer_size,
-        ctx->ring.buffer);
+        number_of_new_bytes,
+        data_rate);
 
     return true;
 }
