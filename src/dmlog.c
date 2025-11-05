@@ -3,6 +3,24 @@
 #include <string.h>
 #include <stdarg.h>
 
+/**
+ * @file dmlog.c
+ * @brief DMOD Log Library Implementation
+ * 
+ * This implementation uses a simple ring buffer that stores raw character data
+ * without entry headers. Entries are delimited by newline characters ('\n').
+ * 
+ * Synchronization benefits:
+ * - No complex entry structures to maintain atomicity for
+ * - Single byte writes are naturally atomic on most architectures
+ * - Entry IDs tracked separately in ring control structure
+ * - Simpler locking requirements due to reduced metadata
+ * 
+ * Buffer layout:
+ * [data][data][data]...[data]
+ * Where entries are separated by '\n' characters
+ */
+
 struct dmlog_ctx
 {
     dmlog_ring_t ring;
