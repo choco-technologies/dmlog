@@ -440,6 +440,15 @@ bool dmlog_flush(dmlog_ctx_t ctx)
     {
         context_lock(ctx);
         
+        // Ensure entry ends with newline for proper delimiting
+        if(ctx->write_entry_offset > 0 && ctx->write_buffer[ctx->write_entry_offset - 1] != '\n')
+        {
+            if(ctx->write_entry_offset < DMOD_LOG_MAX_ENTRY_SIZE)
+            {
+                ctx->write_buffer[ctx->write_entry_offset++] = '\n';
+            }
+        }
+        
         // Write the buffered data to the ring buffer
         write_entry_to_head(ctx, ctx->write_buffer, ctx->write_entry_offset);
         
