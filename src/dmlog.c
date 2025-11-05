@@ -384,6 +384,11 @@ bool dmlog_flush(dmlog_ctx_t ctx)
     if(dmlog_is_valid(ctx))
     {
         context_lock(ctx);
+        if(ctx->write_buffer[ctx->write_entry_offset - 1] != '\0')
+        {
+            // Ensure null-termination
+            ctx->write_buffer[ctx->write_entry_offset++] = '\0';
+        }
         for(dmlog_index_t i = 0; i < ctx->write_entry_offset; i++)
         {
             if(get_free_space(ctx) == 0)
