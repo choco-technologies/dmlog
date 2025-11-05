@@ -278,6 +278,10 @@ bool dmlog_putc(dmlog_ctx_t ctx, char c)
             ctx->write_buffer[ctx->write_entry_offset++] = c;
             result = true;
         }
+        if(c == '\n')
+        {
+            result = dmlog_flush(ctx);
+        }
         context_unlock(ctx);
     }
     Dmod_ExitCritical();
@@ -307,6 +311,10 @@ bool dmlog_puts(dmlog_ctx_t ctx, const char *s)
                 result = false; // Failed
                 break;
             }
+        }
+        if(result && s[len - 1] != '\n')
+        {
+            result = dmlog_flush(ctx);
         }
         context_unlock(ctx);
     }
