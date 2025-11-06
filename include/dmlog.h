@@ -31,15 +31,15 @@ typedef uint32_t dmlog_index_t;
  * 
  * Contains:
  * - magic: Magic number for validation (0x444D4F44 = "DMOD")
- * - latest_id: Most recent log entry ID (for easy monitoring)
- * - flags: Command/status flags (bit 0: clear buffer)
- * - head_offset: Offset to the newest entry in the buffer
- * - tail_offset: Offset to the oldest entry in the buffer
+ * - flags: Command/status flags (bit 0: clear buffer, bit 1: busy flag)
+ * - head_offset: Offset to the write position in the buffer
+ * - tail_offset: Offset to the read position in the buffer
  * - buffer_size: Total size of the buffer in bytes
- * - buffer: Variable-length entries stored here
+ * - buffer: Raw log data stored here
  * 
- * Buffer layout: Entries are stored sequentially with their headers.
- * When the buffer wraps around, the oldest entries are overwritten.
+ * Buffer layout: Raw bytes are stored directly without entry headers.
+ * Entries are delimited by newline characters ('\n').
+ * When the buffer wraps around, the oldest data is overwritten.
  */
 typedef struct 
 {
