@@ -382,7 +382,7 @@ DMLoG uses a circular buffer with the following layout:
 ```
 +------------------+
 |  Control Header  |  (dmlog_ring_t)
-|  - magic         |  Magic number (0x444D4C4F)
+|  - magic         |  Magic number (0x444D4C4F = "DMLO")
 |  - flags         |  Status/command flags
 |  - head_offset   |  Write position
 |  - tail_offset   |  Read position
