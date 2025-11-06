@@ -197,6 +197,9 @@ void manage_buffer(dmlog_ctx_t ctx) {
 ### Calculating Required Buffer Size
 
 ```c
+#include "dmlog.h"
+#include <stdlib.h>
+
 void allocate_dynamic_buffer(void) {
     dmlog_index_t desired_buffer_size = 4096;
     
