@@ -15,6 +15,16 @@ static void reset_buffer(void) {
     memset(test_buffer, 0, TEST_BUFFER_SIZE);
 }
 
+// Helper function to create context and clear initial version message for tests
+static dmlog_ctx_t create_test_context(void) {
+    dmlog_ctx_t ctx = dmlog_create(test_buffer, TEST_BUFFER_SIZE);
+    if (ctx) {
+        // Clear the initial version message for clean testing
+        dmlog_clear(ctx);
+    }
+    return ctx;
+}
+
 // Test: Context creation and validation
 static void test_context_creation(void) {
     TEST_SECTION("Context Creation and Validation");
@@ -24,6 +34,15 @@ static void test_context_creation(void) {
     dmlog_ctx_t ctx = dmlog_create(test_buffer, TEST_BUFFER_SIZE);
     ASSERT_TEST(ctx != NULL, "Create context with valid parameters");
     ASSERT_TEST(dmlog_is_valid(ctx) == true, "Context is valid after creation");
+    
+    // Test that version message is logged automatically
+    char read_buf[256];
+    bool result = dmlog_read_next(ctx);
+    ASSERT_TEST(result == true, "Version message is logged on creation");
+    if (result) {
+        dmlog_gets(ctx, read_buf, sizeof(read_buf));
+        ASSERT_TEST(strstr(read_buf, "dmlog ver.") != NULL, "Version message contains 'dmlog ver.'");
+    }
     
     // Note: Cannot test with too small buffer as DMOD_ASSERT_MSG will terminate
     // the program. The API expects callers to provide valid buffers.
@@ -102,7 +121,7 @@ static void test_read_operations(void) {
     TEST_SECTION("Read Operations");
     reset_buffer();
     
-    dmlog_ctx_t ctx = dmlog_create(test_buffer, TEST_BUFFER_SIZE);
+    dmlog_ctx_t ctx = create_test_context();
     ASSERT_TEST(ctx != NULL, "Create context for read tests");
     
     // Write some test data
@@ -136,7 +155,7 @@ static void test_getc(void) {
     TEST_SECTION("Character Read Operations");
     reset_buffer();
     
-    dmlog_ctx_t ctx = dmlog_create(test_buffer, TEST_BUFFER_SIZE);
+    dmlog_ctx_t ctx = create_test_context();
     ASSERT_TEST(ctx != NULL, "Create context for getc tests");
     
     // Write test data
@@ -226,7 +245,7 @@ static void test_multiple_entries(void) {
     TEST_SECTION("Multiple Entries Handling");
     reset_buffer();
     
-    dmlog_ctx_t ctx = dmlog_create(test_buffer, TEST_BUFFER_SIZE);
+    dmlog_ctx_t ctx = create_test_context();
     ASSERT_TEST(ctx != NULL, "Create context for multiple entries test");
     
     // Write multiple entries
@@ -267,7 +286,7 @@ static void test_auto_flush(void) {
     TEST_SECTION("Manual Flush Test");
     reset_buffer();
     
-    dmlog_ctx_t ctx = dmlog_create(test_buffer, TEST_BUFFER_SIZE);
+    dmlog_ctx_t ctx = create_test_context();
     ASSERT_TEST(ctx != NULL, "Create context for manual flush test");
     
     // Write characters including newline (now requires manual flush)

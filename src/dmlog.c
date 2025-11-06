@@ -2,6 +2,11 @@
 #include "dmod.h"
 #include <string.h>
 #include <stdarg.h>
+#include <stdio.h>
+
+#ifndef DMLOG_VERSION
+#   define DMLOG_VERSION "unknown"
+#endif
 
 struct dmlog_ctx
 {
@@ -199,6 +204,11 @@ dmlog_ctx_t dmlog_create(void *buffer, dmlog_index_t buffer_size)
     ctx->read_entry_offset      = 0;
     ctx->lock_recursion         = 0;
     Dmod_ExitCritical();
+
+    // Log dmlog version
+    char version_msg[64];
+    snprintf(version_msg, sizeof(version_msg), "== dmlog ver. %s ==\n", DMLOG_VERSION);
+    dmlog_puts(ctx, version_msg);
 
     return ctx;
 }
