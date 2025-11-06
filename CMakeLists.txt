@@ -71,7 +71,6 @@ add_library(${MODULE_NAME} STATIC
 target_compile_definitions(${MODULE_NAME} 
     PRIVATE 
         $<$<BOOL:${DMLOG_DONT_IMPLEMENT_DMOD_API}>:DMLOG_DONT_IMPLEMENT_DMOD_API>
-        DMLOG_VERSION="${PROJECT_VERSION}"
 )
 
 target_include_directories(${MODULE_NAME} 
