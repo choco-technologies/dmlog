@@ -389,18 +389,19 @@ DMLoG uses a circular buffer with the following layout:
 |  - buffer_size   |  Buffer capacity
 +------------------+
 |                  |
-|   Log Entries    |  Variable-length entries
-|   (Ring Buffer)  |  Each with header + data
+|   Log Data       |  Raw log data stored directly
+|   (Ring Buffer)  |  Entries delimited by newlines
 |                  |
 +------------------+
 ```
 
-### Entry Format
+### Data Storage
 
-Each log entry contains:
-- Magic number (4 bytes): 0x454E5452 ("ENTR")
-- Entry size (4 bytes): Total size including header
-- Data: Null-terminated log message
+Log data is stored directly in the circular buffer without entry headers:
+- Raw bytes written sequentially
+- Entries delimited by newline characters (`\n`)
+- Automatic flush on newline or manual flush
+- Oldest data automatically overwritten when buffer is full
 
 ### Thread Safety
 
