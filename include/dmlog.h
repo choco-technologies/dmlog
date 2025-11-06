@@ -30,7 +30,7 @@ typedef uint32_t dmlog_index_t;
  * @brief Ring buffer control structure
  * 
  * Contains:
- * - magic: Magic number for validation (0x444D4F44 = "DMOD")
+ * - magic: Magic number for validation (0x444D4C4F = "DMLO")
  * - flags: Command/status flags (bit 0: clear buffer, bit 1: busy flag)
  * - head_offset: Offset to the write position in the buffer
  * - tail_offset: Offset to the read position in the buffer
