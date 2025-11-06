@@ -10,10 +10,6 @@
 #   define DMLOG_MAGIC_NUMBER      0x444D4C4F 
 #endif
 
-#ifndef DMLOG_ENTRY_MAGIC_NUMBER
-#   define DMLOG_ENTRY_MAGIC_NUMBER 0x454E5452 
-#endif
-
 /* Maximum size of a single log message */
 #ifndef DMOD_LOG_MAX_ENTRY_SIZE
 #define DMOD_LOG_MAX_ENTRY_SIZE    500
