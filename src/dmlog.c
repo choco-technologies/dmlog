@@ -3,6 +3,10 @@
 #include <string.h>
 #include <stdarg.h>
 
+#ifndef DMLOG_VERSION_STRING
+#   define DMLOG_VERSION_STRING "== dmlog ver. unknown ==\n"
+#endif
+
 struct dmlog_ctx
 {
     dmlog_ring_t ring;
@@ -199,6 +203,9 @@ dmlog_ctx_t dmlog_create(void *buffer, dmlog_index_t buffer_size)
     ctx->read_entry_offset      = 0;
     ctx->lock_recursion         = 0;
     Dmod_ExitCritical();
+
+    // Log dmlog version string (prepared at compile time)
+    dmlog_puts(ctx, DMLOG_VERSION_STRING);
 
     return ctx;
 }
