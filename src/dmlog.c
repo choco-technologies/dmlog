@@ -423,7 +423,12 @@ bool dmlog_read_next(dmlog_ctx_t ctx)
     {
         wait_for_unlock(ctx);
         context_lock(ctx);
-        for(dmlog_index_t i = 0; i < DMOD_LOG_MAX_ENTRY_SIZE - 1; i++)
+        
+        // Clear read buffer
+        memset(ctx->read_buffer, 0, DMOD_LOG_MAX_ENTRY_SIZE);
+        
+        dmlog_index_t i = 0;
+        for(i = 0; i < DMOD_LOG_MAX_ENTRY_SIZE - 1; i++)
         {
             uint8_t byte;
             if(read_byte_from_tail(ctx, &byte))
@@ -432,12 +437,22 @@ bool dmlog_read_next(dmlog_ctx_t ctx)
                 break;
             }
             ctx->read_buffer[i] = (char)byte;
-            result = true; // Successfully read entry
-            if(byte == '\0')
+            result = true; // Successfully read at least one byte
+            
+            // Stop reading at newline (end of entry)
+            if(byte == '\n')
             {
+                i++; // Include the newline in the entry
                 break;
             }
         }
+        
+        // Null-terminate the read buffer
+        if(i < DMOD_LOG_MAX_ENTRY_SIZE)
+        {
+            ctx->read_buffer[i] = '\0';
+        }
+        
         ctx->read_entry_offset = 0;
         context_unlock(ctx);
     }
@@ -503,18 +518,18 @@ char dmlog_getc(dmlog_ctx_t ctx)
  */
 bool dmlog_gets(dmlog_ctx_t ctx, char *s, size_t max_len)
 {
+    bool result = false;
     Dmod_EnterCritical();
     if(dmlog_is_valid(ctx))
     {
         context_lock(ctx);
         size_t i = 0;
-        while(i < max_len - 1)
+        size_t read_len = strlen(ctx->read_buffer);
+        
+        // Copy from read_buffer starting from current offset
+        while(i < max_len - 1 && ctx->read_entry_offset < read_len)
         {
-            char c = dmlog_getc(ctx);
-            if(c == '\0')
-            {
-                break; // No more characters
-            }
+            char c = ctx->read_buffer[ctx->read_entry_offset++];
             s[i++] = c;
             if(c == '\n')
             {
@@ -522,12 +537,11 @@ bool dmlog_gets(dmlog_ctx_t ctx, char *s, size_t max_len)
             }
         }
         s[i] = '\0'; // Null-terminate
-        Dmod_ExitCritical();
+        result = (i > 0);
         context_unlock(ctx);
-        return i > 0;
     }
     Dmod_ExitCritical();
-    return false;
+    return result;
 }
 
 /**
