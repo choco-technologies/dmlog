@@ -400,10 +400,6 @@ bool dmlog_flush(dmlog_ctx_t ctx)
                 break;
             }
         }
-        if(result) // Only add null terminator if all bytes were written successfully
-        {
-            write_byte_to_tail(ctx, (uint8_t)'\0'); // Null-terminate entry
-        }
         memset(ctx->write_buffer, 0, DMOD_LOG_MAX_ENTRY_SIZE);
         ctx->write_entry_offset = 0;
 
