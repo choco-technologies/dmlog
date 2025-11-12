@@ -552,3 +552,87 @@ bool monitor_synchronize(monitor_ctx_t *ctx)
     ctx->tail_offset    = ctx->ring.tail_offset;
     return true;
 }
+
+/**
+ * @brief Send input data from PC to the firmware's input buffer
+ * 
+ * @param ctx Pointer to the monitor context
+ * @param input Input string to send
+ * @param length Length of the input string
+ * @return true on success, false on failure
+ */
+bool monitor_send_input(monitor_ctx_t *ctx, const char* input, size_t length)
+{
+    if(input == NULL || length == 0)
+    {
+        TRACE_ERROR("Invalid input data\n");
+        return false;
+    }
+
+    if(!monitor_wait_until_not_busy(ctx))
+    {
+        TRACE_ERROR("Dmlog ring buffer is busy, cannot send input\n");
+        return false;
+    }
+
+    // Update ring to get current state
+    if(!monitor_update_ring(ctx))
+    {
+        TRACE_ERROR("Failed to update dmlog ring buffer before sending input\n");
+        return false;
+    }
+
+    // Check available space in input buffer
+    dmlog_index_t input_head = ctx->ring.input_head_offset;
+    dmlog_index_t input_tail = ctx->ring.input_tail_offset;
+    dmlog_index_t input_size = ctx->ring.input_buffer_size;
+    
+    dmlog_index_t free_space;
+    if(input_head >= input_tail)
+    {
+        free_space = input_size - (input_head - input_tail);
+    }
+    else
+    {
+        free_space = input_tail - input_head;
+    }
+    free_space = free_space > 0 ? free_space - 1 : 0; // Leave one byte empty
+    
+    if(length > free_space)
+    {
+        TRACE_ERROR("Not enough space in input buffer: need %zu bytes, have %u bytes\n", length, free_space);
+        return false;
+    }
+
+    // Write data to input buffer, handling wrap-around
+    uint32_t input_buffer_addr = (uint32_t)((uintptr_t)ctx->ring.input_buffer);
+    for(size_t i = 0; i < length; i++)
+    {
+        uint32_t write_addr = input_buffer_addr + input_head;
+        if(openocd_write_memory(ctx->socket, write_addr, &input[i], 1) < 0)
+        {
+            TRACE_ERROR("Failed to write input byte at offset %u\n", input_head);
+            return false;
+        }
+        input_head = (input_head + 1) % input_size;
+    }
+
+    // Update input_head_offset in the ring structure
+    uint32_t head_offset_addr = ctx->ring_address + offsetof(dmlog_ring_t, input_head_offset);
+    if(openocd_write_memory(ctx->socket, head_offset_addr, &input_head, sizeof(dmlog_index_t)) < 0)
+    {
+        TRACE_ERROR("Failed to update input_head_offset\n");
+        return false;
+    }
+
+    // Set INPUT_AVAILABLE flag
+    uint32_t new_flags = ctx->ring.flags | DMLOG_FLAG_INPUT_AVAILABLE;
+    if(!monitor_write_flags(ctx, new_flags))
+    {
+        TRACE_ERROR("Failed to set INPUT_AVAILABLE flag\n");
+        return false;
+    }
+
+    TRACE_VERBOSE("Sent %zu bytes to input buffer\n", length);
+    return true;
+}
