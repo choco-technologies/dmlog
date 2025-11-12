@@ -361,9 +361,6 @@ void monitor_run(monitor_ctx_t *ctx, bool show_timestamps, bool blocking_mode)
         TRACE_INFO("Monitoring in snapshot mode\n");
         while(monitor_load_snapshot(ctx, blocking_mode))
         {
-            // Check for input request from firmware
-            monitor_handle_input_request(ctx);
-            
             while(dmlog_read_next(ctx->dmlog_ctx))
             {
                 const char* entry_data = dmlog_get_ref_buffer(ctx->dmlog_ctx);
@@ -382,6 +379,10 @@ void monitor_run(monitor_ctx_t *ctx, bool show_timestamps, bool blocking_mode)
                     printf("%s", entry_data);
                 }
             }
+            
+            // Check for input request from firmware (after printing all output)
+            monitor_handle_input_request(ctx);
+            
             usleep(300000); 
         }
         TRACE_INFO("Exiting snapshot monitoring loop\n");
@@ -392,9 +393,6 @@ void monitor_run(monitor_ctx_t *ctx, bool show_timestamps, bool blocking_mode)
         const char* entry_data = monitor_get_entry_buffer(ctx);
         while(monitor_wait_for_new_data(ctx) )
         {
-            // Check for input request from firmware
-            monitor_handle_input_request(ctx);
-            
             usleep(100000); // Sleep briefly to allow data to accumulate
             while(!is_buffer_empty(ctx))
             {
@@ -429,6 +427,9 @@ void monitor_run(monitor_ctx_t *ctx, bool show_timestamps, bool blocking_mode)
                     printf("%s", entry_data);
                 }
             }
+            
+            // Check for input request from firmware (after printing all output)
+            monitor_handle_input_request(ctx);
         }
     }
 }
@@ -657,10 +658,7 @@ bool monitor_handle_input_request(monitor_ctx_t *ctx)
         return false;
     }
 
-    TRACE_INFO("Firmware requested input\n");
-    printf("Firmware is waiting for input: ");
-    fflush(stdout);
-
+    // Read input from user (no prompt, firmware should print its own prompt)
     char input_buffer[512];
     if(fgets(input_buffer, sizeof(input_buffer), stdin) == NULL)
     {
@@ -684,6 +682,5 @@ bool monitor_handle_input_request(monitor_ctx_t *ctx)
         return false;
     }
 
-    TRACE_INFO("Input sent to firmware\n");
     return true;
 }
