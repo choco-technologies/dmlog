@@ -576,11 +576,9 @@ bool monitor_send_input(monitor_ctx_t *ctx, const char* input, size_t length)
         return false;
     }
 
-    if(!monitor_wait_until_not_busy(ctx))
-    {
-        TRACE_ERROR("Dmlog ring buffer is busy, cannot send input\n");
-        return false;
-    }
+    // Note: Do NOT wait for not-busy here! The firmware is intentionally
+    // holding the BUSY flag while waiting for input. We need to write
+    // directly to memory even while the firmware has the lock.
 
     // Update ring to get current state
     if(!monitor_update_ring(ctx))
@@ -632,13 +630,16 @@ bool monitor_send_input(monitor_ctx_t *ctx, const char* input, size_t length)
         return false;
     }
 
-    // Set INPUT_AVAILABLE flag
+    // Set INPUT_AVAILABLE flag (write directly without waiting for not-busy)
     uint32_t new_flags = ctx->ring.flags | DMLOG_FLAG_INPUT_AVAILABLE;
-    if(!monitor_write_flags(ctx, new_flags))
+    if(openocd_write_memory(ctx->socket, ctx->ring_address + offsetof(dmlog_ring_t, flags), &new_flags, sizeof(uint32_t)) < 0)
     {
         TRACE_ERROR("Failed to set INPUT_AVAILABLE flag\n");
         return false;
     }
+
+    // Update local cache
+    ctx->ring.flags = new_flags;
 
     TRACE_VERBOSE("Sent %zu bytes to input buffer\n", length);
     return true;
@@ -674,13 +675,16 @@ bool monitor_handle_input_request(monitor_ctx_t *ctx)
         return false;
     }
 
-    // Clear the INPUT_REQUESTED flag
+    // Clear the INPUT_REQUESTED flag (write directly without waiting for not-busy)
     uint32_t new_flags = ctx->ring.flags & ~DMLOG_FLAG_INPUT_REQUESTED;
-    if(!monitor_write_flags(ctx, new_flags))
+    if(openocd_write_memory(ctx->socket, ctx->ring_address + offsetof(dmlog_ring_t, flags), &new_flags, sizeof(uint32_t)) < 0)
     {
         TRACE_ERROR("Failed to clear INPUT_REQUESTED flag\n");
         return false;
     }
+
+    // Update local cache
+    ctx->ring.flags = new_flags;
 
     return true;
 }
