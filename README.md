@@ -21,11 +21,13 @@ A lightweight, thread-safe ring buffer logging library for embedded systems, des
 
 ## ✨ Features
 
+- **Bidirectional Communication**: Support for both output (firmware → PC) and input (PC → firmware) data transfer
 - **Ring Buffer Architecture**: Circular buffer automatically overwrites oldest entries when full
 - **Thread-Safe**: Built-in locking mechanism for multi-threaded environments
 - **Zero-Copy Reads**: Direct buffer access for efficient log reading
 - **Auto-Flush**: Automatic flushing on newline characters
 - **Real-Time Monitoring**: OpenOCD integration for live log monitoring from embedded devices
+- **User Input Support**: Read data from PC/monitor into firmware for interactive applications
 - **Configurable Buffer Size**: Flexible buffer sizing to fit your memory constraints
 - **Minimal Dependencies**: Only depends on the DMOD framework
 - **Well-Tested**: Comprehensive unit tests with >80% code coverage
@@ -194,6 +196,62 @@ void manage_buffer(dmlog_ctx_t ctx) {
 }
 ```
 
+### Reading User Input (PC to Firmware)
+
+DMLoG supports bidirectional communication, allowing firmware to read data sent from the PC/monitor:
+
+```c
+void interactive_console(dmlog_ctx_t ctx) {
+    // Request input from user - monitor will detect this and prompt
+    dmlog_input_request(ctx);
+    
+    // Wait for input to become available
+    while (!dmlog_input_available(ctx)) {
+        // Could do other work here or yield to other tasks
+    }
+    
+    // Read the input
+    char input_buffer[256];
+    if (dmlog_input_gets(ctx, input_buffer, sizeof(input_buffer))) {
+        printf("Received command: %s", input_buffer);
+        // Process the command
+    }
+}
+
+void read_user_input(dmlog_ctx_t ctx) {
+    // Check if input data is available
+    if (dmlog_input_available(ctx)) {
+        char input_buffer[256];
+        
+        // Read a line of input from PC
+        if (dmlog_input_gets(ctx, input_buffer, sizeof(input_buffer))) {
+            printf("Received from PC: %s", input_buffer);
+        }
+    }
+}
+
+void read_input_char_by_char(dmlog_ctx_t ctx) {
+    // Read input character by character
+    char c;
+    while ((c = dmlog_input_getc(ctx)) != '\0') {
+        // Process each character
+        if (c == '\n') {
+            printf("End of line received\n");
+            break;
+        }
+        printf("Char: %c\n", c);
+    }
+}
+
+void check_input_space(dmlog_ctx_t ctx) {
+    // Check available space in input buffer
+    dmlog_index_t free_space = dmlog_input_get_free_space(ctx);
+    printf("Input buffer free space: %u bytes\n", free_space);
+}
+```
+
+**Note**: The input buffer size is configurable via CMake (`DMLOG_INPUT_BUFFER_SIZE`, default: 512 bytes). When firmware calls `dmlog_input_request()`, it sets a flag that the monitor detects, prompting the user for input which is then sent to the firmware.
+
 ### Calculating Required Buffer Size
 
 ```c
@@ -256,6 +314,16 @@ void allocate_dynamic_buffer(void) {
 | `dmlog_index_t dmlog_left_entry_space(dmlog_ctx_t ctx)` | Get available space for entry data |
 | `void dmlog_clear(dmlog_ctx_t ctx)` | Clear all log entries |
 
+### Input Operations (PC to Firmware)
+
+| Function | Description |
+|----------|-------------|
+| `void dmlog_input_request(dmlog_ctx_t ctx)` | Request input from user (sets flag for monitor) |
+| `bool dmlog_input_available(dmlog_ctx_t ctx)` | Check if input data is available |
+| `char dmlog_input_getc(dmlog_ctx_t ctx)` | Read next character from input buffer |
+| `bool dmlog_input_gets(dmlog_ctx_t ctx, char* s, size_t max_len)` | Read line from input buffer |
+| `dmlog_index_t dmlog_input_get_free_space(dmlog_ctx_t ctx)` | Get available space in input buffer |
+
 ## 🔨 Building
 
 ### Basic Build
@@ -302,6 +370,7 @@ make
 | `DMLOG_BUILD_TOOLS` | Build monitoring tools | OFF |
 | `ENABLE_COVERAGE` | Enable code coverage | OFF |
 | `DMLOG_DONT_IMPLEMENT_DMOD_API` | Don't implement DMOD API | OFF |
+| `DMLOG_INPUT_BUFFER_SIZE` | Input buffer size in bytes | 512 |
 
 ## 🧪 Testing
 
@@ -375,33 +444,53 @@ See [tools/monitor/README.md](tools/monitor/README.md) for complete documentatio
 
 ## 🏗️ Architecture
 
-### Ring Buffer Structure
+### Bidirectional Ring Buffer Structure
 
-DMLoG uses a circular buffer with the following layout:
+DMLoG uses a split circular buffer supporting bidirectional communication:
 
 ```
-+------------------+
-|  Control Header  |  (dmlog_ring_t)
-|  - magic         |  Magic number (0x444D4C4F = "DMLO")
-|  - flags         |  Status/command flags
-|  - head_offset   |  Write position
-|  - tail_offset   |  Read position
-|  - buffer_size   |  Buffer capacity
-+------------------+
-|                  |
-|   Log Data       |  Raw log data stored directly
-|   (Ring Buffer)  |  Entries delimited by newlines
-|                  |
-+------------------+
++------------------------+
+|  Control Header        |  (dmlog_ring_t)
+|  - magic               |  Magic number (0x444D4C4F = "DMLO")
+|  - flags               |  Status/command flags:
+|                        |    • BUSY: Buffer locked
+|                        |    • CLEAR_BUFFER: Clear requested
+|                        |    • INPUT_AVAILABLE: Input data ready
+|                        |    • INPUT_REQUESTED: FW requests input
+|  - head_offset         |  Output write position (firmware)
+|  - tail_offset         |  Output read position (PC)
+|  - buffer_size         |  Output buffer capacity
+|  - input_head_offset   |  Input write position (PC)
+|  - input_tail_offset   |  Input read position (firmware)
+|  - input_buffer_size   |  Input buffer capacity (configurable)
++------------------------+
+|                        |
+|   Output Ring Buffer   |  Firmware → PC
+|   (Log Data)           |  Entries delimited by newlines
+|                        |
++------------------------+
+|                        |
+|   Input Ring Buffer    |  PC → Firmware (configurable size)
+|   (User Input)         |  Commands/data from user
+|                        |
++------------------------+
 ```
 
 ### Data Storage
 
-Log data is stored directly in the circular buffer without entry headers:
-- Raw bytes written sequentially
+**Output Buffer (Firmware → PC)**:
+- Raw bytes written sequentially by firmware
 - Entries delimited by newline characters (`\n`)
 - Automatic flush on newline or manual flush
 - Oldest data automatically overwritten when buffer is full
+- 80% of total buffer space
+
+**Input Buffer (PC → Firmware)**:
+- Data written by monitor tool via OpenOCD when firmware requests input
+- Read by firmware using `dmlog_input_*` functions
+- Newline-delimited entries
+- Configurable size via `DMLOG_INPUT_BUFFER_SIZE` CMake option (default: 512 bytes)
+- Firmware uses `dmlog_input_request()` to request input, monitor detects flag and prompts user
 
 ### Thread Safety
 

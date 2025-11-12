@@ -5,6 +5,7 @@ A command-line tool for monitoring DMLoG ring buffer via OpenOCD. This tool conn
 ## Features
 
 - Real-time log monitoring from embedded devices
+- Bidirectional communication support (read logs, send input to firmware)
 - Connects via OpenOCD telnet interface
 - Configurable buffer address, size, and polling interval
 - Debug mode for troubleshooting
@@ -81,9 +82,13 @@ The tool will:
 
 ## Implementation Details
 
-This tool is implemented in C and uses the same type definitions as the DMLoG library (`dmlog.h`). It communicates with OpenOCD via the telnet interface and uses the `mdw` (memory display word) command to read memory from the target device.
+This tool is implemented in C and uses the same type definitions as the DMLoG library (`dmlog.h`). It communicates with OpenOCD via the telnet interface and uses the `mdw` (memory display word) and `mww` (memory write word) commands to read from and write to the target device.
 
 The implementation follows the same logic as the Python reference implementation from dmod-boot, but is written in C for better integration with the DMLoG type system.
+
+### Bidirectional Communication
+
+The monitor supports sending input data to the firmware via the `monitor_send_input()` function. This writes data to the input buffer portion of the ring buffer, which can then be read by the firmware using `dmlog_input_*` functions. This enables interactive console applications and remote command execution on the target device.
 
 ## Troubleshooting
 

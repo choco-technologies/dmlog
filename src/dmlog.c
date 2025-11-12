@@ -14,6 +14,8 @@ struct dmlog_ctx
     dmlog_index_t write_entry_offset;
     char read_buffer[DMOD_LOG_MAX_ENTRY_SIZE];
     dmlog_index_t read_entry_offset;
+    char input_read_buffer[DMOD_LOG_MAX_ENTRY_SIZE];
+    dmlog_index_t input_read_entry_offset;
     uint32_t lock_recursion;
     uint8_t buffer[4];
 };
@@ -193,14 +195,32 @@ dmlog_ctx_t dmlog_create(void *buffer, dmlog_index_t buffer_size)
     memset(buffer, 0, buffer_size);
     dmlog_index_t control_size  = (dmlog_index_t)((uintptr_t)ctx->buffer - (uintptr_t)ctx);
     DMOD_ASSERT_MSG(buffer_size > control_size, "Buffer size too small for control structure");
+    
+    // Split buffer: use configurable input buffer size
+    dmlog_index_t total_buffer_size = buffer_size - control_size;
+#ifndef DMLOG_INPUT_BUFFER_SIZE
+#define DMLOG_INPUT_BUFFER_SIZE 512
+#endif
+    dmlog_index_t input_buffer_size = DMLOG_INPUT_BUFFER_SIZE;
+    if (input_buffer_size >= total_buffer_size) {
+        // Ensure we have at least some space for output
+        input_buffer_size = total_buffer_size / 5;  // Fallback to 20% if configured size is too large
+    }
+    dmlog_index_t output_buffer_size = total_buffer_size - input_buffer_size;
+    
     ctx->ring.magic             = DMLOG_MAGIC_NUMBER;
-    ctx->ring.buffer_size       = buffer_size - control_size;
+    ctx->ring.buffer_size       = output_buffer_size;
     ctx->ring.buffer            = (uint64_t)((uintptr_t)ctx->buffer);
     ctx->ring.head_offset       = 0;
     ctx->ring.tail_offset       = 0;
+    ctx->ring.input_buffer_size = input_buffer_size;
+    ctx->ring.input_buffer      = (uint64_t)((uintptr_t)ctx->buffer + output_buffer_size);
+    ctx->ring.input_head_offset = 0;
+    ctx->ring.input_tail_offset = 0;
     ctx->ring.flags             = 0;
     ctx->write_entry_offset     = 0;
     ctx->read_entry_offset      = 0;
+    ctx->input_read_entry_offset = 0;
     ctx->lock_recursion         = 0;
     Dmod_ExitCritical();
 
@@ -565,12 +585,240 @@ void dmlog_clear(dmlog_ctx_t ctx)
         ctx->ring.head_offset = 0;
         ctx->ring.tail_offset = 0;
         ctx->ring.buffer = (uint64_t)((uintptr_t)ctx->buffer);
+        ctx->ring.input_head_offset = 0;
+        ctx->ring.input_tail_offset = 0;
         ctx->write_entry_offset = 0;
-        ctx->read_entry_offset = 0; 
+        ctx->read_entry_offset = 0;
+        ctx->input_read_entry_offset = 0;
         memset(ctx->write_buffer, 0, DMOD_LOG_MAX_ENTRY_SIZE);
         memset(ctx->read_buffer, 0, DMOD_LOG_MAX_ENTRY_SIZE);
-        memset(ctx->buffer, 0, ctx->ring.buffer_size);
-        ctx->ring.flags &= ~DMLOG_FLAG_CLEAR_BUFFER;
+        memset(ctx->input_read_buffer, 0, DMOD_LOG_MAX_ENTRY_SIZE);
+        memset(ctx->buffer, 0, ctx->ring.buffer_size + ctx->ring.input_buffer_size);
+        ctx->ring.flags &= ~(DMLOG_FLAG_CLEAR_BUFFER | DMLOG_FLAG_INPUT_AVAILABLE | DMLOG_FLAG_INPUT_REQUESTED);
+        context_unlock(ctx);
+    }
+    Dmod_ExitCritical();
+}
+
+/**
+ * @brief Get the amount of free space in the input ring buffer.
+ * 
+ * @param ctx DMLoG context.
+ * @return dmlog_index_t Number of free bytes in the input ring buffer.
+ */
+static dmlog_index_t get_input_free_space(dmlog_ctx_t ctx)
+{
+    dmlog_index_t free_space = 0;
+    if(ctx->ring.input_head_offset >= ctx->ring.input_tail_offset)
+    {
+        free_space = ctx->ring.input_buffer_size - (ctx->ring.input_head_offset - ctx->ring.input_tail_offset);
+    }
+    else
+    {
+        free_space = ctx->ring.input_tail_offset - ctx->ring.input_head_offset;
+    }
+    return free_space > 0 ? free_space - 1 : 0; // Leave one byte empty to distinguish full/empty
+}
+
+/**
+ * @brief Read a single byte from the input buffer tail.
+ * 
+ * @param ctx DMLoG context.
+ * @param out_byte Pointer to store the read byte.
+ * @return true if the buffer is empty, false otherwise.
+ */
+static bool read_byte_from_input_tail(dmlog_ctx_t ctx, void* out_byte)
+{
+    bool empty = (ctx->ring.input_tail_offset == ctx->ring.input_head_offset);
+    if(!empty)
+    {
+        if(out_byte != NULL)
+        {
+            uint8_t* input_buffer = (uint8_t*)((uintptr_t)ctx->ring.input_buffer);
+            *((uint8_t*)out_byte) = input_buffer[ctx->ring.input_tail_offset];
+        }
+        ctx->ring.input_tail_offset = (ctx->ring.input_tail_offset + 1) % ctx->ring.input_buffer_size;
+    }
+    return empty;
+}
+
+/**
+ * @brief Write a single byte to the input buffer head.
+ * 
+ * @param ctx DMLoG context.
+ * @param byte Byte to write.
+ * @return true on success, false if the buffer is full.
+ */
+static bool write_byte_to_input_head(dmlog_ctx_t ctx, uint8_t byte)
+{
+    dmlog_index_t next_head = (ctx->ring.input_head_offset + 1) % ctx->ring.input_buffer_size;
+    if(next_head == ctx->ring.input_tail_offset)
+    {
+        // Buffer full
+        return false;
+    }
+    uint8_t* input_buffer = (uint8_t*)((uintptr_t)ctx->ring.input_buffer);
+    input_buffer[ctx->ring.input_head_offset] = byte;
+    ctx->ring.input_head_offset = next_head;
+    return true;
+}
+
+/**
+ * @brief Check if input data is available in the buffer.
+ * 
+ * @param ctx DMLoG context.
+ * @return true if input data is available, false otherwise.
+ */
+bool dmlog_input_available(dmlog_ctx_t ctx)
+{
+    bool result = false;
+    Dmod_EnterCritical();
+    if(dmlog_is_valid(ctx))
+    {
+        result = (ctx->ring.input_tail_offset != ctx->ring.input_head_offset);
+    }
+    Dmod_ExitCritical();
+    return result;
+}
+
+/**
+ * @brief Get the amount of free space in the input buffer.
+ * 
+ * @param ctx DMLoG context.
+ * @return dmlog_index_t Number of free bytes in the input buffer.
+ */
+dmlog_index_t dmlog_input_get_free_space(dmlog_ctx_t ctx)
+{
+    dmlog_index_t free_space = 0;
+    Dmod_EnterCritical();
+    if(dmlog_is_valid(ctx))
+    {
+        free_space = get_input_free_space(ctx);
+    }
+    Dmod_ExitCritical();
+    return free_space;
+}
+
+/**
+ * @brief Read a single character from the input buffer.
+ * 
+ * @param ctx DMLoG context.
+ * @return char The next character from input, or '\0' if none available.
+ */
+char dmlog_input_getc(dmlog_ctx_t ctx)
+{
+    char c = '\0';
+    Dmod_EnterCritical();
+    if(dmlog_is_valid(ctx))
+    {
+        context_lock(ctx);
+        
+        // Check if we need to read the next entry
+        if(ctx->input_read_entry_offset >= DMOD_LOG_MAX_ENTRY_SIZE || 
+           ctx->input_read_buffer[ctx->input_read_entry_offset] == '\0')
+        {
+            // Clear input read buffer
+            memset(ctx->input_read_buffer, 0, DMOD_LOG_MAX_ENTRY_SIZE);
+            
+            // Read next entry from input buffer
+            dmlog_index_t i = 0;
+            for(i = 0; i < DMOD_LOG_MAX_ENTRY_SIZE - 1; i++)
+            {
+                uint8_t byte;
+                if(read_byte_from_input_tail(ctx, &byte))
+                {
+                    // Buffer empty
+                    break;
+                }
+                ctx->input_read_buffer[i] = (char)byte;
+                
+                // Stop reading at newline (end of entry)
+                if(byte == '\n')
+                {
+                    i++; // Include the newline in the entry
+                    break;
+                }
+            }
+            
+            // Null-terminate the read buffer
+            if(i < DMOD_LOG_MAX_ENTRY_SIZE)
+            {
+                ctx->input_read_buffer[i] = '\0';
+            }
+            
+            ctx->input_read_entry_offset = 0;
+            
+            // Update flag if buffer is now empty
+            if(ctx->ring.input_tail_offset == ctx->ring.input_head_offset)
+            {
+                ctx->ring.flags &= ~DMLOG_FLAG_INPUT_AVAILABLE;
+            }
+        }
+        
+        if(ctx->input_read_buffer[ctx->input_read_entry_offset] != '\0')
+        {
+            c = ctx->input_read_buffer[ctx->input_read_entry_offset++];
+        }
+        
+        context_unlock(ctx);
+    }
+    Dmod_ExitCritical();
+    return c;
+}
+
+/**
+ * @brief Read a line from the input buffer.
+ * 
+ * @param ctx DMLoG context.
+ * @param s Buffer to store the string.
+ * @param max_len Maximum length of the buffer.
+ * @return true on success, false on failure.
+ */
+bool dmlog_input_gets(dmlog_ctx_t ctx, char *s, size_t max_len)
+{
+    bool result = false;
+    Dmod_EnterCritical();
+    if(dmlog_is_valid(ctx))
+    {
+        context_lock(ctx);
+        size_t i = 0;
+        
+        while(i < max_len - 1)
+        {
+            char c = dmlog_input_getc(ctx);
+            if(c == '\0')
+            {
+                break; // No more data
+            }
+            s[i++] = c;
+            if(c == '\n')
+            {
+                break; // End of line
+            }
+        }
+        
+        s[i] = '\0'; // Null-terminate
+        result = (i > 0);
+        context_unlock(ctx);
+    }
+    Dmod_ExitCritical();
+    return result;
+}
+
+/**
+ * @brief Request input from the user (sets INPUT_REQUESTED flag).
+ * 
+ * This function sets a flag that the monitor can detect to prompt the user for input.
+ * 
+ * @param ctx DMLoG context.
+ */
+void dmlog_input_request(dmlog_ctx_t ctx)
+{
+    Dmod_EnterCritical();
+    if(dmlog_is_valid(ctx))
+    {
+        context_lock(ctx);
+        ctx->ring.flags |= DMLOG_FLAG_INPUT_REQUESTED;
         context_unlock(ctx);
     }
     Dmod_ExitCritical();
