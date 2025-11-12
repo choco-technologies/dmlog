@@ -201,6 +201,23 @@ void manage_buffer(dmlog_ctx_t ctx) {
 DMLoG supports bidirectional communication, allowing firmware to read data sent from the PC/monitor:
 
 ```c
+void interactive_console(dmlog_ctx_t ctx) {
+    // Request input from user - monitor will detect this and prompt
+    dmlog_input_request(ctx);
+    
+    // Wait for input to become available
+    while (!dmlog_input_available(ctx)) {
+        // Could do other work here or yield to other tasks
+    }
+    
+    // Read the input
+    char input_buffer[256];
+    if (dmlog_input_gets(ctx, input_buffer, sizeof(input_buffer))) {
+        printf("Received command: %s", input_buffer);
+        // Process the command
+    }
+}
+
 void read_user_input(dmlog_ctx_t ctx) {
     // Check if input data is available
     if (dmlog_input_available(ctx)) {
@@ -233,7 +250,7 @@ void check_input_space(dmlog_ctx_t ctx) {
 }
 ```
 
-**Note**: The input buffer is automatically allocated as 20% of the total buffer size. Data is written to the input buffer by the monitor tool via OpenOCD using `monitor_send_input()`.
+**Note**: The input buffer size is configurable via CMake (`DMLOG_INPUT_BUFFER_SIZE`, default: 512 bytes). When firmware calls `dmlog_input_request()`, it sets a flag that the monitor detects, prompting the user for input which is then sent to the firmware.
 
 ### Calculating Required Buffer Size
 
@@ -301,6 +318,7 @@ void allocate_dynamic_buffer(void) {
 
 | Function | Description |
 |----------|-------------|
+| `void dmlog_input_request(dmlog_ctx_t ctx)` | Request input from user (sets flag for monitor) |
 | `bool dmlog_input_available(dmlog_ctx_t ctx)` | Check if input data is available |
 | `char dmlog_input_getc(dmlog_ctx_t ctx)` | Read next character from input buffer |
 | `bool dmlog_input_gets(dmlog_ctx_t ctx, char* s, size_t max_len)` | Read line from input buffer |
@@ -352,6 +370,7 @@ make
 | `DMLOG_BUILD_TOOLS` | Build monitoring tools | OFF |
 | `ENABLE_COVERAGE` | Enable code coverage | OFF |
 | `DMLOG_DONT_IMPLEMENT_DMOD_API` | Don't implement DMOD API | OFF |
+| `DMLOG_INPUT_BUFFER_SIZE` | Input buffer size in bytes | 512 |
 
 ## 🧪 Testing
 
@@ -433,21 +452,25 @@ DMLoG uses a split circular buffer supporting bidirectional communication:
 +------------------------+
 |  Control Header        |  (dmlog_ring_t)
 |  - magic               |  Magic number (0x444D4C4F = "DMLO")
-|  - flags               |  Status/command flags (busy, clear, input available)
+|  - flags               |  Status/command flags:
+|                        |    • BUSY: Buffer locked
+|                        |    • CLEAR_BUFFER: Clear requested
+|                        |    • INPUT_AVAILABLE: Input data ready
+|                        |    • INPUT_REQUESTED: FW requests input
 |  - head_offset         |  Output write position (firmware)
 |  - tail_offset         |  Output read position (PC)
-|  - buffer_size         |  Output buffer capacity (80%)
+|  - buffer_size         |  Output buffer capacity
 |  - input_head_offset   |  Input write position (PC)
 |  - input_tail_offset   |  Input read position (firmware)
-|  - input_buffer_size   |  Input buffer capacity (20%)
+|  - input_buffer_size   |  Input buffer capacity (configurable)
 +------------------------+
 |                        |
-|   Output Ring Buffer   |  Firmware → PC (80% of total)
+|   Output Ring Buffer   |  Firmware → PC
 |   (Log Data)           |  Entries delimited by newlines
 |                        |
 +------------------------+
 |                        |
-|   Input Ring Buffer    |  PC → Firmware (20% of total)
+|   Input Ring Buffer    |  PC → Firmware (configurable size)
 |   (User Input)         |  Commands/data from user
 |                        |
 +------------------------+
@@ -463,10 +486,11 @@ DMLoG uses a split circular buffer supporting bidirectional communication:
 - 80% of total buffer space
 
 **Input Buffer (PC → Firmware)**:
-- Data written by monitor tool via OpenOCD
+- Data written by monitor tool via OpenOCD when firmware requests input
 - Read by firmware using `dmlog_input_*` functions
 - Newline-delimited entries
-- 20% of total buffer space (sufficient for user input)
+- Configurable size via `DMLOG_INPUT_BUFFER_SIZE` CMake option (default: 512 bytes)
+- Firmware uses `dmlog_input_request()` to request input, monitor detects flag and prompts user
 
 ### Thread Safety
 

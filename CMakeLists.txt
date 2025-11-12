@@ -12,6 +12,7 @@ project(dmlog
     LANGUAGES C CXX)
 
 set(DMLOG_DONT_IMPLEMENT_DMOD_API OFF CACHE BOOL "Do not implement DMOD API in dmheap library")
+set(DMLOG_INPUT_BUFFER_SIZE 512 CACHE STRING "Input buffer size in bytes (default: 512)")
 
 # ======================================================================
 #               Coverage Configuration
@@ -72,6 +73,7 @@ target_compile_definitions(${MODULE_NAME}
     PRIVATE 
         $<$<BOOL:${DMLOG_DONT_IMPLEMENT_DMOD_API}>:DMLOG_DONT_IMPLEMENT_DMOD_API>
         DMLOG_VERSION_STRING="== dmlog ver. ${PROJECT_VERSION} ==\\n"
+        DMLOG_INPUT_BUFFER_SIZE=${DMLOG_INPUT_BUFFER_SIZE}
 )
 
 target_include_directories(${MODULE_NAME} 

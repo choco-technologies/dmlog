@@ -361,6 +361,9 @@ void monitor_run(monitor_ctx_t *ctx, bool show_timestamps, bool blocking_mode)
         TRACE_INFO("Monitoring in snapshot mode\n");
         while(monitor_load_snapshot(ctx, blocking_mode))
         {
+            // Check for input request from firmware
+            monitor_handle_input_request(ctx);
+            
             while(dmlog_read_next(ctx->dmlog_ctx))
             {
                 const char* entry_data = dmlog_get_ref_buffer(ctx->dmlog_ctx);
@@ -389,6 +392,9 @@ void monitor_run(monitor_ctx_t *ctx, bool show_timestamps, bool blocking_mode)
         const char* entry_data = monitor_get_entry_buffer(ctx);
         while(monitor_wait_for_new_data(ctx) )
         {
+            // Check for input request from firmware
+            monitor_handle_input_request(ctx);
+            
             usleep(100000); // Sleep briefly to allow data to accumulate
             while(!is_buffer_empty(ctx))
             {
@@ -634,5 +640,50 @@ bool monitor_send_input(monitor_ctx_t *ctx, const char* input, size_t length)
     }
 
     TRACE_VERBOSE("Sent %zu bytes to input buffer\n", length);
+    return true;
+}
+
+/**
+ * @brief Check for input request from firmware and prompt user
+ * 
+ * @param ctx Pointer to the monitor context
+ * @return true if input was handled, false otherwise
+ */
+bool monitor_handle_input_request(monitor_ctx_t *ctx)
+{
+    // Check if firmware requested input
+    if(!(ctx->ring.flags & DMLOG_FLAG_INPUT_REQUESTED))
+    {
+        return false;
+    }
+
+    TRACE_INFO("Firmware requested input\n");
+    printf("Firmware is waiting for input: ");
+    fflush(stdout);
+
+    char input_buffer[512];
+    if(fgets(input_buffer, sizeof(input_buffer), stdin) == NULL)
+    {
+        TRACE_ERROR("Failed to read input from user\n");
+        return false;
+    }
+
+    // Send input to firmware
+    size_t input_len = strlen(input_buffer);
+    if(!monitor_send_input(ctx, input_buffer, input_len))
+    {
+        TRACE_ERROR("Failed to send input to firmware\n");
+        return false;
+    }
+
+    // Clear the INPUT_REQUESTED flag
+    uint32_t new_flags = ctx->ring.flags & ~DMLOG_FLAG_INPUT_REQUESTED;
+    if(!monitor_write_flags(ctx, new_flags))
+    {
+        TRACE_ERROR("Failed to clear INPUT_REQUESTED flag\n");
+        return false;
+    }
+
+    TRACE_INFO("Input sent to firmware\n");
     return true;
 }

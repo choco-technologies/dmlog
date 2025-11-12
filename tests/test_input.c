@@ -296,6 +296,44 @@ static void test_input_buffer_overflow(void) {
     free(large_data);
 }
 
+// Test: Input request functionality
+static void test_input_request(void) {
+    TEST_SECTION("Input Request Functionality");
+    
+    reset_buffer();
+    dmlog_ctx_t ctx = create_test_context();
+    ASSERT_TEST(ctx != NULL, "Create context");
+    
+    // Access the ring structure directly to check flags
+    typedef struct {
+        volatile uint32_t           magic;
+        volatile uint32_t           flags;
+        volatile uint32_t           head_offset;
+        volatile uint32_t           tail_offset;
+        volatile uint32_t           buffer_size;
+        volatile uint64_t           buffer;
+        volatile uint32_t           input_head_offset;
+        volatile uint32_t           input_tail_offset;
+        volatile uint32_t           input_buffer_size;
+        volatile uint64_t           input_buffer;
+    } __attribute__((packed)) test_ring_t;
+    
+    test_ring_t* ring = (test_ring_t*)ctx;
+    
+    // Initially INPUT_REQUESTED flag should not be set
+    ASSERT_TEST((ring->flags & DMLOG_FLAG_INPUT_REQUESTED) == 0, "INPUT_REQUESTED flag initially not set");
+    
+    // Request input from firmware
+    dmlog_input_request(ctx);
+    
+    // Check that INPUT_REQUESTED flag is now set
+    ASSERT_TEST((ring->flags & DMLOG_FLAG_INPUT_REQUESTED) != 0, "INPUT_REQUESTED flag is set after request");
+    
+    // Clear the context - should clear the flag
+    dmlog_clear(ctx);
+    ASSERT_TEST((ring->flags & DMLOG_FLAG_INPUT_REQUESTED) == 0, "INPUT_REQUESTED flag cleared after dmlog_clear");
+}
+
 int main(void) {
     printf("Running dmlog input tests...\n\n");
     
@@ -307,6 +345,7 @@ int main(void) {
     test_input_char_by_char();
     test_input_clear();
     test_input_buffer_overflow();
+    test_input_request();
     
     // Print summary
     printf("\n");

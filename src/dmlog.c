@@ -196,10 +196,17 @@ dmlog_ctx_t dmlog_create(void *buffer, dmlog_index_t buffer_size)
     dmlog_index_t control_size  = (dmlog_index_t)((uintptr_t)ctx->buffer - (uintptr_t)ctx);
     DMOD_ASSERT_MSG(buffer_size > control_size, "Buffer size too small for control structure");
     
-    // Split buffer: 80% for output, 20% for input
+    // Split buffer: use configurable input buffer size
     dmlog_index_t total_buffer_size = buffer_size - control_size;
-    dmlog_index_t output_buffer_size = (total_buffer_size * 4) / 5;  // 80%
-    dmlog_index_t input_buffer_size = total_buffer_size - output_buffer_size;  // 20%
+#ifndef DMLOG_INPUT_BUFFER_SIZE
+#define DMLOG_INPUT_BUFFER_SIZE 512
+#endif
+    dmlog_index_t input_buffer_size = DMLOG_INPUT_BUFFER_SIZE;
+    if (input_buffer_size >= total_buffer_size) {
+        // Ensure we have at least some space for output
+        input_buffer_size = total_buffer_size / 5;  // Fallback to 20% if configured size is too large
+    }
+    dmlog_index_t output_buffer_size = total_buffer_size - input_buffer_size;
     
     ctx->ring.magic             = DMLOG_MAGIC_NUMBER;
     ctx->ring.buffer_size       = output_buffer_size;
@@ -587,7 +594,7 @@ void dmlog_clear(dmlog_ctx_t ctx)
         memset(ctx->read_buffer, 0, DMOD_LOG_MAX_ENTRY_SIZE);
         memset(ctx->input_read_buffer, 0, DMOD_LOG_MAX_ENTRY_SIZE);
         memset(ctx->buffer, 0, ctx->ring.buffer_size + ctx->ring.input_buffer_size);
-        ctx->ring.flags &= ~(DMLOG_FLAG_CLEAR_BUFFER | DMLOG_FLAG_INPUT_AVAILABLE);
+        ctx->ring.flags &= ~(DMLOG_FLAG_CLEAR_BUFFER | DMLOG_FLAG_INPUT_AVAILABLE | DMLOG_FLAG_INPUT_REQUESTED);
         context_unlock(ctx);
     }
     Dmod_ExitCritical();
@@ -796,6 +803,25 @@ bool dmlog_input_gets(dmlog_ctx_t ctx, char *s, size_t max_len)
     }
     Dmod_ExitCritical();
     return result;
+}
+
+/**
+ * @brief Request input from the user (sets INPUT_REQUESTED flag).
+ * 
+ * This function sets a flag that the monitor can detect to prompt the user for input.
+ * 
+ * @param ctx DMLoG context.
+ */
+void dmlog_input_request(dmlog_ctx_t ctx)
+{
+    Dmod_EnterCritical();
+    if(dmlog_is_valid(ctx))
+    {
+        context_lock(ctx);
+        ctx->ring.flags |= DMLOG_FLAG_INPUT_REQUESTED;
+        context_unlock(ctx);
+    }
+    Dmod_ExitCritical();
 }
 
 #ifndef DMLOG_DONT_IMPLEMENT_DMOD_API
