@@ -3,6 +3,7 @@ add_executable(dmlog_monitor
     openocd.c
     monitor.c
     trace.c
+    backend.c
 )
 
 target_link_libraries(dmlog_monitor

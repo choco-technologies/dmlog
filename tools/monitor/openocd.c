@@ -213,7 +213,7 @@ static size_t read_line(int socket, char *buffer, size_t max_length)
  * @param addr Pointer to opencd_addr_t structure with host and port
  * @return int Socket file descriptor on success, -1 on failure
  */
-int openocd_connect(opencd_addr_t *addr)
+int openocd_connect(const backend_addr_t *addr)
 {
     struct addrinfo hints = {
         .ai_family = AF_INET,

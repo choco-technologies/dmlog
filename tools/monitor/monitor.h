@@ -2,7 +2,7 @@
 #define MONITOR_H
 
 #include "dmlog.h"
-#include "openocd.h"
+#include "backend.h"
 
 typedef struct 
 {
@@ -16,9 +16,10 @@ typedef struct
     bool                snapshot_mode;
     size_t              snapshot_size;
     time_t              last_update_time;
+    backend_type_t      backend_type;
 } monitor_ctx_t;
 
-monitor_ctx_t* monitor_connect(opencd_addr_t *addr, uint32_t ring_address, bool snapshot_mode);
+monitor_ctx_t* monitor_connect(backend_addr_t *addr, uint32_t ring_address, bool snapshot_mode);
 void monitor_disconnect(monitor_ctx_t *ctx);
 bool monitor_update_ring(monitor_ctx_t *ctx);
 bool monitor_wait_until_not_busy(monitor_ctx_t *ctx);

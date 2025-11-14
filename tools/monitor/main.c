@@ -15,8 +15,8 @@ void usage(const char *progname)
     printf("Options:\n");
     printf("  --help        Show this help message\n");
     printf("  --version     Show version information\n");
-    printf("  --host        OpenOCD IP address (default: localhost)\n");
-    printf("  --port        OpenOCD port (default: 4444)\n");
+    printf("  --host        Backend IP address (default: localhost)\n");
+    printf("  --port        Backend port (default: 4444)\n");
     printf("  --addr        Address of the ring buffer\n");
     printf("  --search      Search for the ring buffer in memory\n");
     printf("  --trace-level Set trace level (error, warn, info, verbose)\n");
@@ -32,9 +32,11 @@ int main(int argc, char *argv[])
     bool blocking_mode = false;
     bool snapshot_mode = false;
     uint32_t ring_buffer_address = 0x20010000; // Default address
-    opencd_addr_t openocd_addr;
-    strncpy(openocd_addr.host, OPENOCD_DEFAULT_HOST, sizeof(openocd_addr.host));
-    openocd_addr.port = OPENOCD_DEFAULT_PORT;
+    backend_addr_t backend_addr;
+    strncpy(backend_addr.host, "localhost", sizeof(backend_addr.host));
+    backend_addr.port = 4444; // Default OpenOCD port
+    backend_addr.type = BACKEND_TYPE_OPENOCD; // Default backend type
+
     for(int i = 1; i < argc; i++)
     {
         if(strcmp(argv[i], "--help") == 0)
@@ -49,11 +51,11 @@ int main(int argc, char *argv[])
         }
         else if(strcmp(argv[i], "--host") == 0 && i + 1 < argc)
         {
-            strncpy(openocd_addr.host, argv[++i], sizeof(openocd_addr.host));
+            strncpy(backend_addr.host, argv[++i], sizeof(backend_addr.host));
         }
         else if(strcmp(argv[i], "--port") == 0 && i + 1 < argc)
         {
-            openocd_addr.port = atoi(argv[++i]);
+            backend_addr.port = atoi(argv[++i]);
         }
         else if(strcmp(argv[i], "--addr") == 0 && i + 1 < argc)
         {
@@ -109,7 +111,7 @@ int main(int argc, char *argv[])
         }
     }
 
-    monitor_ctx_t *ctx = monitor_connect(&openocd_addr, ring_buffer_address, snapshot_mode);
+    monitor_ctx_t *ctx = monitor_connect(&backend_addr, ring_buffer_address, snapshot_mode);
     if(ctx == NULL)
     {
         TRACE_ERROR("Failed to connect to monitor\n");
