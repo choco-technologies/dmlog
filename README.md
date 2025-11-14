@@ -26,7 +26,7 @@ A lightweight, thread-safe ring buffer logging library for embedded systems, des
 - **Thread-Safe**: Built-in locking mechanism for multi-threaded environments
 - **Zero-Copy Reads**: Direct buffer access for efficient log reading
 - **Auto-Flush**: Automatic flushing on newline characters
-- **Real-Time Monitoring**: OpenOCD integration for live log monitoring from embedded devices
+- **Real-Time Monitoring**: OpenOCD and GDB server integration for live log monitoring from embedded devices (supports QEMU)
 - **User Input Support**: Read data from PC/monitor into firmware for interactive applications
 - **Configurable Buffer Size**: Flexible buffer sizing to fit your memory constraints
 - **Minimal Dependencies**: Only depends on the DMOD framework
@@ -42,7 +42,8 @@ A lightweight, thread-safe ring buffer logging library for embedded systems, des
 
 ### Optional Requirements
 - lcov (for code coverage reports)
-- OpenOCD (for real-time monitoring)
+- OpenOCD (for real-time monitoring with hardware)
+- GDB server (for real-time monitoring with QEMU or other debuggers)
 
 ## 🚀 Installation
 
@@ -418,23 +419,33 @@ See [tests/README.md](tests/README.md) for more details.
 
 ### DMLoG Monitor
 
-A command-line tool for real-time log monitoring from embedded devices via OpenOCD.
+A command-line tool for real-time log monitoring from embedded devices via OpenOCD or GDB server.
 
 ```bash
-# Basic usage (connects to localhost:4444)
+# Basic usage with OpenOCD (connects to localhost:4444)
 ./build/tools/monitor/dmlog_monitor
 
-# With custom configuration
+# Using GDB server backend (connects to localhost:1234)
+./build/tools/monitor/dmlog_monitor --gdb
+
+# With custom configuration (OpenOCD)
 ./build/tools/monitor/dmlog_monitor \
     --host 192.168.1.10 \
     --port 4444 \
-    --addr 0x20000000 \
-    --size 4096 \
-    --interval 0.1
+    --addr 0x20010000
+
+# With GDB server and QEMU
+./build/tools/monitor/dmlog_monitor \
+    --gdb \
+    --host localhost \
+    --port 1234 \
+    --addr 0x20010000
 ```
 
 #### Monitor Features
 - Real-time log streaming from target device
+- Dual backend support: OpenOCD or GDB server (for QEMU integration)
+- Bidirectional communication (read logs, send input to firmware)
 - Shows existing logs on startup
 - Configurable polling interval
 - Debug mode for troubleshooting

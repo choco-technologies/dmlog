@@ -61,6 +61,7 @@ The `make coverage` command will also print a summary to the console showing lin
 
 ## Test Files
 
+### Unit Tests
 - **test_common.h**: Common test utilities and macros
 - **test_simple.c**: Basic smoke tests
 - **test_dmlog_unit.c**: Comprehensive unit tests covering:
@@ -81,6 +82,55 @@ The `make coverage` command will also print a summary to the console showing lin
   - Varying message size benchmarks (small, medium, large)
   - Read performance measurements
   - Buffer wraparound performance under heavy load
+- **test_input.c**: Tests for bidirectional communication (PC → firmware input)
+
+### Integration Tests
+- **test_monitor_app.c**: Test application for dmlog_monitor integration testing
+  - Creates a dmlog buffer with test messages
+  - Can be run under gdbserver for testing GDB backend
+  - Useful for manual testing of monitor connectivity
+  
+- **test_monitor_gdb_basic.sh**: Basic integration test for GDB backend
+  - Validates --gdb flag recognition
+  - Tests GDB backend connection attempts
+  - Verifies OpenOCD backend as default
+  - **Runs automatically in CI on every build**
+  - Fast and requires no external dependencies
+  
+- **test_monitor_gdb.sh**: Full GDB server integration test (advanced)
+  - Tests complete end-to-end GDB server connectivity
+  - Validates memory read operations via GDB Remote Serial Protocol
+  - Requires gdbserver and more complex setup
+  - **Runs automatically on pull requests**
+  - **Can be triggered manually via GitHub Actions workflow_dispatch**
+  - Can be run manually for comprehensive validation
+  - See script header for detailed explanation of why it's not run on every push
+
+## CI Testing Strategy
+
+The test suite uses a tiered approach for CI automation:
+
+### Tier 1: Fast Tests (Every Build)
+- Unit tests (`test_dmlog_unit`, `test_simple`, `test_benchmark`, `test_input`)
+- Basic GDB backend test (`test_monitor_gdb_basic.sh`)
+- Run on every push and pull request
+- Fast execution, no external dependencies
+- Validate core functionality and compilation
+
+### Tier 2: Integration Tests (Pull Requests)
+- Full GDB integration test (`test_monitor_gdb.sh`)
+- Run automatically on all pull requests
+- Requires gdbserver and complex setup
+- Validates end-to-end GDB backend functionality
+- Longer execution time, involves multiple processes
+
+### Tier 3: Manual Tests (On-Demand)
+- Full GDB integration test can be triggered manually via GitHub Actions
+- Go to Actions → CI → Run workflow → Check "Run full GDB integration test"
+- Useful for testing specific changes without opening a PR
+
+This strategy ensures fast feedback on every commit while providing comprehensive
+validation where it matters most (pull requests) without slowing down routine development.
 
 ## Coverage Goal
 

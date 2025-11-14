@@ -74,6 +74,28 @@ target_include_directories(test_input
         ${CMAKE_SOURCE_DIR}/include
 )
 
+# =====================================================================
+#               Test: Monitor Integration Test App
+# =====================================================================
+add_executable(test_monitor_app test_monitor_app.c)
+target_link_libraries(test_monitor_app 
+    PRIVATE 
+        dmlog
+        dmod_system
+        dmod_common
+        dmod_fastlz
+        dmod_inc
+)
+target_include_directories(test_monitor_app
+    PRIVATE
+        ${CMAKE_SOURCE_DIR}/include
+)
+# Disable PIE for test_monitor_app to get predictable addresses for gdbserver testing
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(test_monitor_app PRIVATE -fno-pie)
+    target_link_options(test_monitor_app PRIVATE -no-pie)
+endif()
+
 add_test(NAME dmlog_unit   COMMAND test_dmlog_unit)
 add_test(NAME simple_test  COMMAND test_simple)
 add_test(NAME benchmark    COMMAND test_benchmark)

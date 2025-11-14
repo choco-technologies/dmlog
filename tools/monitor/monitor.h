@@ -2,13 +2,14 @@
 #define MONITOR_H
 
 #include "dmlog.h"
-#include "openocd.h"
+#include "backend.h"
 
 typedef struct 
 {
     dmlog_ring_t        ring;
-    int                 socket;
-    uint32_t            ring_address;
+    backend_ctx_t       backend_ctx;
+    const backend_ops_t *backend_ops;
+    uint64_t            ring_address;
     dmlog_index_t       tail_offset;
     char                entry_buffer[DMOD_LOG_MAX_ENTRY_SIZE];
     bool                owns_busy_flag;
@@ -18,7 +19,7 @@ typedef struct
     time_t              last_update_time;
 } monitor_ctx_t;
 
-monitor_ctx_t* monitor_connect(opencd_addr_t *addr, uint32_t ring_address, bool snapshot_mode);
+monitor_ctx_t* monitor_connect(backend_addr_t *addr, backend_type_t backend_type, uint64_t ring_address, bool snapshot_mode);
 void monitor_disconnect(monitor_ctx_t *ctx);
 bool monitor_update_ring(monitor_ctx_t *ctx);
 bool monitor_wait_until_not_busy(monitor_ctx_t *ctx);

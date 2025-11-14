@@ -5,6 +5,13 @@ on:
     branches: [ master, develop, copilot/*, feature/* ]
   pull_request:
     branches: [ master, develop, feature/* ]
+  workflow_dispatch:
+    inputs:
+      run_full_gdb_test:
+        description: 'Run full GDB integration test'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   build-and-test:
@@ -39,6 +46,12 @@ jobs:
         cd build
         ctest --output-on-failure --verbose
     
+    - name: Run monitor GDB backend basic test
+      # Basic test validates that the GDB backend is properly compiled and functional
+      run: |
+        cd tests
+        ./test_monitor_gdb_basic.sh
+    
     - name: Upload test results
       if: always()
       uses: actions/upload-artifact@v4
@@ -46,6 +59,52 @@ jobs:
         name: test-results
         path: build/Testing/
         retention-days: 30
+
+  gdb-integration-test:
+    # Run full GDB integration test on pull requests or manual trigger
+    # This test requires gdbserver and complex setup, so it's separate from basic tests
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.run_full_gdb_test)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    container:
+      image: chocotechnologies/dmod:1.0.2
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    
+    - name: Install dependencies
+      run: |
+        apt-get update
+        apt-get install -y gdbserver gdb
+    
+    - name: Configure CMake
+      run: |
+        mkdir -p build
+        cd build
+        cmake .. -DCMAKE_BUILD_TYPE=Release -DDMLOG_BUILD_TESTS=ON -DDMLOG_BUILD_TOOLS=ON
+    
+    - name: Build
+      run: |
+        cd build
+        make -j$(nproc)
+    
+    - name: Run full GDB integration test
+      run: |
+        cd tests
+        ./test_monitor_gdb.sh
+      timeout-minutes: 5
+    
+    - name: Upload test logs on failure
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: gdb-test-logs
+        path: /tmp/dmlog_*.txt
+        retention-days: 7
 
   coverage:
     runs-on: ubuntu-latest

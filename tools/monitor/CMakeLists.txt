@@ -1,6 +1,8 @@
 add_executable(dmlog_monitor
     main.c
     openocd.c
+    gdbserver.c
+    backend.c
     monitor.c
     trace.c
 )
