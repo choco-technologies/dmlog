@@ -407,8 +407,28 @@ void monitor_run(monitor_ctx_t *ctx, bool show_timestamps, bool blocking_mode)
     {
         TRACE_INFO("Monitoring in live mode\n");
         const char* entry_data = monitor_get_entry_buffer(ctx);
-        while(monitor_wait_for_new_data(ctx) )
+        while(true)
         {
+            // Check for input request BEFORE waiting for data (to avoid deadlock)
+            // Update ring to get current flags
+            if(!monitor_update_ring(ctx))
+            {
+                TRACE_ERROR("Failed to update dmlog ring buffer\n");
+                return;
+            }
+            
+            // Handle input request first if present
+            if(ctx->ring.flags & DMLOG_FLAG_INPUT_REQUESTED)
+            {
+                monitor_handle_input_request(ctx);
+            }
+            
+            // Now wait for new data
+            if(!monitor_wait_for_new_data(ctx))
+            {
+                return;
+            }
+            
             usleep(100000); // Sleep briefly to allow data to accumulate
             while(!is_buffer_empty(ctx))
             {
@@ -443,9 +463,6 @@ void monitor_run(monitor_ctx_t *ctx, bool show_timestamps, bool blocking_mode)
                     printf("%s", entry_data);
                 }
             }
-            
-            // Check for input request from firmware (after printing all output)
-            monitor_handle_input_request(ctx);
         }
     }
 }
