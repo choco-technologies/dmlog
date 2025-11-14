@@ -74,6 +74,23 @@ target_include_directories(test_input
         ${CMAKE_SOURCE_DIR}/include
 )
 
+# =====================================================================
+#               Test: Monitor Integration Test App
+# =====================================================================
+add_executable(test_monitor_app test_monitor_app.c)
+target_link_libraries(test_monitor_app 
+    PRIVATE 
+        dmlog
+        dmod_system
+        dmod_common
+        dmod_fastlz
+        dmod_inc
+)
+target_include_directories(test_monitor_app
+    PRIVATE
+        ${CMAKE_SOURCE_DIR}/include
+)
+
 add_test(NAME dmlog_unit   COMMAND test_dmlog_unit)
 add_test(NAME simple_test  COMMAND test_simple)
 add_test(NAME benchmark    COMMAND test_benchmark)

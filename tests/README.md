@@ -61,6 +61,7 @@ The `make coverage` command will also print a summary to the console showing lin
 
 ## Test Files
 
+### Unit Tests
 - **test_common.h**: Common test utilities and macros
 - **test_simple.c**: Basic smoke tests
 - **test_dmlog_unit.c**: Comprehensive unit tests covering:
@@ -81,6 +82,25 @@ The `make coverage` command will also print a summary to the console showing lin
   - Varying message size benchmarks (small, medium, large)
   - Read performance measurements
   - Buffer wraparound performance under heavy load
+- **test_input.c**: Tests for bidirectional communication (PC → firmware input)
+
+### Integration Tests
+- **test_monitor_app.c**: Test application for dmlog_monitor integration testing
+  - Creates a dmlog buffer with test messages
+  - Can be run under gdbserver for testing GDB backend
+  - Useful for manual testing of monitor connectivity
+  
+- **test_monitor_gdb_basic.sh**: Basic integration test for GDB backend
+  - Validates --gdb flag recognition
+  - Tests GDB backend connection attempts
+  - Verifies OpenOCD backend as default
+  - Runs in CI automatically
+  
+- **test_monitor_gdb.sh**: Full GDB server integration test (advanced)
+  - Tests complete end-to-end GDB server connectivity
+  - Validates memory read operations via GDB Remote Serial Protocol
+  - Requires gdbserver and more complex setup
+  - Can be run manually for comprehensive validation
 
 ## Coverage Goal
 
