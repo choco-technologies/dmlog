@@ -1,12 +1,12 @@
 # DMLoG Monitor Tool
 
-A command-line tool for monitoring DMLoG ring buffer via OpenOCD. This tool connects to OpenOCD's telnet interface and continuously reads the log ring buffer from the target microcontroller's memory.
+A command-line tool for monitoring DMLoG ring buffer via OpenOCD or GDB server. This tool connects to the backend's interface and continuously reads the log ring buffer from the target microcontroller's memory.
 
 ## Features
 
 - Real-time log monitoring from embedded devices
 - Bidirectional communication support (read logs, send input to firmware)
-- Connects via OpenOCD telnet interface
+- Dual backend support: OpenOCD or GDB server
 - Configurable buffer address, size, and polling interval
 - Debug mode for troubleshooting
 - Displays existing log entries on startup
@@ -14,9 +14,16 @@ A command-line tool for monitoring DMLoG ring buffer via OpenOCD. This tool conn
 
 ## Prerequisites
 
+### For OpenOCD Backend
 - OpenOCD running with telnet server enabled (default port 4444)
 - Target device with DMLoG library integrated
 - Network connectivity to OpenOCD host
+
+### For GDB Server Backend
+- GDB server running (e.g., QEMU with `-s -S`, or hardware debugger)
+- Default port: 1234
+- Target device with DMLoG library integrated
+- Network connectivity to GDB server host
 
 ## Building
 
@@ -33,33 +40,49 @@ The executable will be located at `build/tools/monitor/dmlog_monitor`.
 
 ## Usage
 
-### Basic Usage
+### Basic Usage (OpenOCD)
 
 ```bash
 ./dmlog_monitor
 ```
 
-This connects to OpenOCD at `localhost:4444` and monitors the ring buffer at the default address `0x20000000`.
+This connects to OpenOCD at `localhost:4444` and monitors the ring buffer at the default address `0x20010000`.
+
+### Using GDB Server Backend
+
+```bash
+./dmlog_monitor --gdb
+```
+
+This connects to GDB server at `localhost:1234` and monitors the ring buffer.
 
 ### Custom Configuration
 
 ```bash
-./dmlog_monitor --host 192.168.1.10 --port 4444 --addr 0x20001000 --size 8192
+# OpenOCD with custom host and port
+./dmlog_monitor --host 192.168.1.10 --port 4444 --addr 0x20001000
+
+# GDB server with custom configuration
+./dmlog_monitor --gdb --host localhost --port 1234 --addr 0x20010000
 ```
 
 ### Command-Line Options
 
-- `--host HOST` - OpenOCD host (default: localhost)
-- `--port PORT` - OpenOCD telnet port (default: 4444)
-- `--addr ADDRESS` - Ring buffer address in hex (default: 0x20000000)
-- `--size SIZE` - Total buffer size in bytes (default: 4096)
-- `--max-entry SIZE` - Maximum entry size in bytes (default: 512)
-- `--interval SECONDS` - Polling interval in seconds (default: 0.1)
-- `--max-startup N` - Maximum old entries to show on startup (default: 100)
-- `--debug` - Enable debug logging
 - `--help` - Show help message
+- `--version` - Show version information
+- `--gdb` - Use GDB server instead of OpenOCD (default: OpenOCD)
+- `--host HOST` - Backend IP address (default: localhost)
+- `--port PORT` - Backend port (default: 4444 for OpenOCD, 1234 for GDB)
+- `--addr ADDRESS` - Ring buffer address in hex (default: 0x20010000)
+- `--trace-level LEVEL` - Set trace level (error, warn, info, verbose)
+- `--verbose` - Enable verbose output (equivalent to --trace-level verbose)
+- `--time` - Show timestamps with log entries
+- `--blocking` - Use blocking mode for reading log entries
+- `--snapshot` - Enable snapshot mode to reduce target reads
 
-## Example
+## Examples
+
+### Example 1: OpenOCD Backend
 
 Start OpenOCD with your target configuration:
 
@@ -70,21 +93,56 @@ openocd -f interface/stlink.cfg -f target/stm32f7x.cfg
 In another terminal, start the monitor:
 
 ```bash
-./dmlog_monitor --addr 0x20000000 --size 4096
+./dmlog_monitor --addr 0x20010000
+```
+
+### Example 2: GDB Server Backend with QEMU
+
+Start QEMU with GDB server enabled:
+
+```bash
+qemu-system-arm -M <machine> -kernel <firmware.elf> -s -S
+```
+
+In another terminal, start the monitor:
+
+```bash
+./dmlog_monitor --gdb --addr 0x20010000
+```
+
+### Example 3: Remote GDB Server
+
+```bash
+./dmlog_monitor --gdb --host 192.168.1.100 --port 1234 --addr 0x20010000 --verbose
 ```
 
 The tool will:
-1. Connect to OpenOCD
-2. Display any existing log entries (up to 100 most recent)
+1. Connect to the specified backend (OpenOCD or GDB server)
+2. Display any existing log entries from the ring buffer
 3. Continuously monitor for new log entries
 4. Display new entries in real-time
-5. Exit gracefully on Ctrl+C
+5. Support bidirectional communication (firmware can request input)
+6. Exit gracefully on Ctrl+C
 
 ## Implementation Details
 
-This tool is implemented in C and uses the same type definitions as the DMLoG library (`dmlog.h`). It communicates with OpenOCD via the telnet interface and uses the `mdw` (memory display word) and `mww` (memory write word) commands to read from and write to the target device.
+This tool is implemented in C and uses the same type definitions as the DMLoG library (`dmlog.h`). It supports two backend implementations:
 
-The implementation follows the same logic as the Python reference implementation from dmod-boot, but is written in C for better integration with the DMLoG type system.
+### Backend Abstraction
+
+The tool uses a pluggable backend architecture that allows switching between different debug interfaces:
+
+- **OpenOCD Backend**: Communicates via OpenOCD's telnet interface using `mdw` and `mww` commands
+- **GDB Server Backend**: Implements GDB Remote Serial Protocol for memory operations (`m` for read, `M` for write)
+
+### GDB Remote Serial Protocol
+
+The GDB server backend implements the following protocol features:
+- Packet format: `$<data>#<checksum>`
+- Memory read: `m<addr>,<length>` - returns hex-encoded data
+- Memory write: `M<addr>,<length>:<hex-data>` - writes data to memory
+- Acknowledgment mode (with optional NoAck mode for improved performance)
+- Checksum verification for data integrity
 
 ### Bidirectional Communication
 
@@ -92,13 +150,24 @@ The monitor supports sending input data to the firmware via the `monitor_send_in
 
 ## Troubleshooting
 
-### Connection Refused
+### Connection Refused (OpenOCD)
 
 ```
 Failed to connect to OpenOCD at localhost:4444: Connection refused
 ```
 
 **Solution**: Make sure OpenOCD is running and the telnet server is enabled on the specified port.
+
+### Connection Refused (GDB Server)
+
+```
+Failed to connect to GDB server at localhost:1234: Connection refused
+```
+
+**Solution**: 
+- For QEMU: Make sure you started QEMU with `-s` flag (or `-gdb tcp::1234`)
+- For hardware debuggers: Verify the GDB server is running on the specified port
+- Check firewall settings if connecting remotely
 
 ### Invalid Magic Number
 
