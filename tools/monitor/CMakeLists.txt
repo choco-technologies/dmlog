@@ -4,6 +4,7 @@ add_executable(dmlog_monitor
     monitor.c
     trace.c
     backend.c
+    gdb.c
 )
 
 target_link_libraries(dmlog_monitor
