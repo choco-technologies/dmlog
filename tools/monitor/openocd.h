@@ -8,6 +8,8 @@
 #define OPENOCD_DEFAULT_HOST    "localhost"
 #define OPENOCD_DEFAULT_PORT    4444
 
+extern const backend_addr_t openocd_default_addr;
+
 extern int openocd_connect(const backend_addr_t *addr);
 extern int openocd_read_welcome(int socket);
 extern int openocd_disconnect(int socket);

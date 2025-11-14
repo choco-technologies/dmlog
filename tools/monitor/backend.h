@@ -31,6 +31,8 @@ typedef struct
  */
 typedef struct 
 {
+    const char* name;    //!< Name of the backend
+    
     /**
      * @brief Connect to the backend.
      * 
@@ -72,6 +74,7 @@ typedef struct
 
 extern backend_if_t backend_openocd;
 extern backend_if_t *backends[BACKEND_TYPE__COUNT];
+extern const backend_addr_t* backend_default_addrs[BACKEND_TYPE__COUNT];
 
 /**
  * @brief Connect to the specified backend.
@@ -114,5 +117,13 @@ extern int backend_read_memory(backend_type_t type, int socket, uint32_t address
  * @return int 0 on success, -1 on failure.
  */
 extern int backend_write_memory(backend_type_t type, int socket, uint32_t address, const void *buffer, size_t length);
+
+/**
+ * @brief Convert backend type to string representation.
+ * 
+ * @param type Backend type.
+ * @return const char* String representation of the backend type.
+ */
+extern const char* backend_type_to_string(backend_type_t type);
 
 #endif // BACKEND_H

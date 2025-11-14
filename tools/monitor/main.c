@@ -4,6 +4,7 @@
 #include "dmlog.h"
 #include "monitor.h"
 #include "trace.h"
+#include "backend.h"
 
 #ifndef DMLOG_VERSION
 #   define DMLOG_VERSION "unknown"
@@ -24,6 +25,7 @@ void usage(const char *progname)
     printf("  --time        Show timestamps with log entries\n");
     printf("  --blocking    Use blocking mode for reading log entries\n");
     printf("  --snapshot    Enable snapshot mode to reduce target reads\n");
+    printf("  --gdb         Use GDB backend instead of OpenOCD\n");
 }
 
 int main(int argc, char *argv[])
@@ -33,9 +35,8 @@ int main(int argc, char *argv[])
     bool snapshot_mode = false;
     uint32_t ring_buffer_address = 0x20010000; // Default address
     backend_addr_t backend_addr;
-    strncpy(backend_addr.host, "localhost", sizeof(backend_addr.host));
-    backend_addr.port = 4444; // Default OpenOCD port
-    backend_addr.type = BACKEND_TYPE_OPENOCD; // Default backend type
+    const backend_addr_t* default_addr = backend_default_addrs[BACKEND_TYPE_OPENOCD];
+    memcpy(&backend_addr, default_addr, sizeof(backend_addr_t));
 
     for(int i = 1; i < argc; i++)
     {
@@ -103,6 +104,25 @@ int main(int argc, char *argv[])
         {
             snapshot_mode = true;
         }
+        else if(strcmp(argv[i], "--gdb") == 0)
+        {
+            const backend_addr_t* gdb_default = backend_default_addrs[BACKEND_TYPE_GDB];
+            if(gdb_default == NULL)
+            {
+                TRACE_ERROR("GDB backend not implemented\n");
+                return 1;
+            }
+            if(backend_addr.port == default_addr->port)
+            {
+                backend_addr.port = gdb_default->port;
+            }
+            if(strcmp(backend_addr.host, default_addr->host) == 0)
+            {
+                strncpy(backend_addr.host, gdb_default->host, sizeof(backend_addr.host));
+            }
+            backend_addr.type = BACKEND_TYPE_GDB;
+            default_addr = gdb_default;
+        }
         else
         {
             TRACE_ERROR("Unknown option: %s\n", argv[i]);
@@ -110,6 +130,12 @@ int main(int argc, char *argv[])
             return 1;
         }
     }
+
+    TRACE_INFO("dmlog monitor version %s\n", DMLOG_VERSION);
+    TRACE_INFO("Using backend: %s (%s:%d)\n", 
+        backend_type_to_string(backend_addr.type),
+        backend_addr.host,
+        backend_addr.port);
 
     monitor_ctx_t *ctx = monitor_connect(&backend_addr, ring_buffer_address, snapshot_mode);
     if(ctx == NULL)

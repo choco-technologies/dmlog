@@ -17,6 +17,15 @@
 #include <stdlib.h>
 
 /**
+ * @brief Default OpenOCD backend address
+ */
+const backend_addr_t openocd_default_addr = {
+    .host = OPENOCD_DEFAULT_HOST,
+    .port = OPENOCD_DEFAULT_PORT,
+    .type = BACKEND_TYPE_OPENOCD
+};
+
+/**
  * @brief Check if character is a hexadecimal digit
  * 
  * @param c Character to check
