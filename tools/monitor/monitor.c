@@ -4,7 +4,7 @@
 #include <time.h>
 #include <string.h>
 #include "monitor.h"
-#include "openocd.h"
+#include "backend.h"
 #include "trace.h"
 
 /**
@@ -57,7 +57,7 @@ static bool read_from_buffer(monitor_ctx_t* ctx, void* dst, size_t length)
     if(length <= left_size)
     {
         uint32_t address = (uint32_t)((uintptr_t)ctx->ring.buffer) + ctx->tail_offset;
-        if(openocd_read_memory(ctx->socket, address, dst, length) < 0)
+        if(ctx->backend_ops->read_memory(ctx->backend_ctx, address, dst, length) < 0)
         {
             TRACE_ERROR("Failed to read %zu bytes from buffer at offset %u\n", length, ctx->tail_offset);
             return false;
@@ -68,14 +68,14 @@ static bool read_from_buffer(monitor_ctx_t* ctx, void* dst, size_t length)
     {
         // Read in two parts due to wrap-around
         uint32_t address = (uint32_t)((uintptr_t)ctx->ring.buffer) + ctx->tail_offset;
-        if(openocd_read_memory(ctx->socket, address, dst, left_size) < 0)
+        if(ctx->backend_ops->read_memory(ctx->backend_ctx, address, dst, left_size) < 0)
         {
             TRACE_ERROR("Failed to read %u bytes from buffer at offset %u\n", left_size, ctx->tail_offset);
             return false;
         }
         size_t remaining = length - left_size;
         address = (uint32_t)((uintptr_t)ctx->ring.buffer);
-        if(openocd_read_memory(ctx->socket, address, (uint8_t*)dst + left_size, remaining) < 0)
+        if(ctx->backend_ops->read_memory(ctx->backend_ctx, address, (uint8_t*)dst + left_size, remaining) < 0)
         {
             TRACE_ERROR("Failed to read %zu bytes from buffer at offset 0\n", remaining);
             return false;
@@ -86,14 +86,15 @@ static bool read_from_buffer(monitor_ctx_t* ctx, void* dst, size_t length)
 }
 
 /**
- * @brief Connect to the monitor via OpenOCD and initialize context
+ * @brief Connect to the monitor via specified backend and initialize context
  * 
- * @param addr Pointer to OpenOCD address structure
+ * @param addr Pointer to backend address structure
+ * @param backend_type Type of backend to use (OpenOCD or GDB)
  * @param ring_address Address of the dmlog ring buffer in target memory
  * @param snapshot_mode Whether to use snapshot mode to reduce target reads
  * @return monitor_ctx_t* Pointer to initialized monitor context, or NULL on failure
  */
-monitor_ctx_t *monitor_connect(opencd_addr_t *addr, uint32_t ring_address, bool snapshot_mode)
+monitor_ctx_t *monitor_connect(backend_addr_t *addr, backend_type_t backend_type, uint32_t ring_address, bool snapshot_mode)
 {
     monitor_ctx_t *ctx = malloc(sizeof(monitor_ctx_t));
     if(ctx == NULL)
@@ -103,8 +104,16 @@ monitor_ctx_t *monitor_connect(opencd_addr_t *addr, uint32_t ring_address, bool 
     }
     memset(ctx, 0, sizeof(monitor_ctx_t));
 
-    ctx->socket = openocd_connect(addr);
-    if(ctx->socket < 0)
+    ctx->backend_ops = backend_get_ops(backend_type);
+    if(ctx->backend_ops == NULL)
+    {
+        TRACE_ERROR("Invalid backend type\n");
+        free(ctx);
+        return NULL;
+    }
+
+    ctx->backend_ctx = ctx->backend_ops->connect(addr);
+    if(ctx->backend_ctx == NULL)
     {
         free(ctx);
         return NULL;
@@ -150,7 +159,14 @@ void monitor_disconnect(monitor_ctx_t *ctx)
 {
     if(ctx)
     {
-        openocd_disconnect(ctx->socket);
+        if(ctx->backend_ops && ctx->backend_ctx)
+        {
+            ctx->backend_ops->disconnect(ctx->backend_ctx);
+        }
+        if(ctx->dmlog_ctx)
+        {
+            free(ctx->dmlog_ctx);
+        }
         free(ctx);
         TRACE_INFO("Disconnected from monitor\n");
     }
@@ -165,7 +181,7 @@ void monitor_disconnect(monitor_ctx_t *ctx)
 bool monitor_update_ring(monitor_ctx_t *ctx)
 {
     dmlog_index_t previous_head = ctx->ring.head_offset;
-    if(openocd_read_memory(ctx->socket, ctx->ring_address, &ctx->ring, sizeof(dmlog_ring_t)) < 0)
+    if(ctx->backend_ops->read_memory(ctx->backend_ctx, ctx->ring_address, &ctx->ring, sizeof(dmlog_ring_t)) < 0)
     {
         TRACE_ERROR("Failed to read dmlog ring buffer from target\n");
         return false;
@@ -318,7 +334,7 @@ bool monitor_load_snapshot(monitor_ctx_t *ctx, bool blocking_mode)
         return false;
     }
 
-    if(openocd_read_memory(ctx->socket, ctx->ring_address, ctx->dmlog_ctx, ctx->snapshot_size) < 0)
+    if(ctx->backend_ops->read_memory(ctx->backend_ctx, ctx->ring_address, ctx->dmlog_ctx, ctx->snapshot_size) < 0)
     {
         TRACE_ERROR("Failed to read dmlog snapshot from target\n");
         return false;
@@ -449,7 +465,7 @@ bool monitor_write_flags(monitor_ctx_t *ctx, uint32_t flags)
         return false;
     }
 
-    if(openocd_write_memory(ctx->socket, ctx->ring_address + offsetof(dmlog_ring_t, flags), &flags, sizeof(uint32_t)) < 0)
+    if(ctx->backend_ops->write_memory(ctx->backend_ctx, ctx->ring_address + offsetof(dmlog_ring_t, flags), &flags, sizeof(uint32_t)) < 0)
     {
         TRACE_ERROR("Failed to write dmlog ring buffer flags to target\n");
         return false;
@@ -614,7 +630,7 @@ bool monitor_send_input(monitor_ctx_t *ctx, const char* input, size_t length)
     for(size_t i = 0; i < length; i++)
     {
         uint32_t write_addr = input_buffer_addr + input_head;
-        if(openocd_write_memory(ctx->socket, write_addr, &input[i], 1) < 0)
+        if(ctx->backend_ops->write_memory(ctx->backend_ctx, write_addr, &input[i], 1) < 0)
         {
             TRACE_ERROR("Failed to write input byte at offset %u\n", input_head);
             return false;
@@ -624,7 +640,7 @@ bool monitor_send_input(monitor_ctx_t *ctx, const char* input, size_t length)
 
     // Update input_head_offset in the ring structure
     uint32_t head_offset_addr = ctx->ring_address + offsetof(dmlog_ring_t, input_head_offset);
-    if(openocd_write_memory(ctx->socket, head_offset_addr, &input_head, sizeof(dmlog_index_t)) < 0)
+    if(ctx->backend_ops->write_memory(ctx->backend_ctx, head_offset_addr, &input_head, sizeof(dmlog_index_t)) < 0)
     {
         TRACE_ERROR("Failed to update input_head_offset\n");
         return false;
@@ -632,7 +648,7 @@ bool monitor_send_input(monitor_ctx_t *ctx, const char* input, size_t length)
 
     // Set INPUT_AVAILABLE flag (write directly without waiting for not-busy)
     uint32_t new_flags = ctx->ring.flags | DMLOG_FLAG_INPUT_AVAILABLE;
-    if(openocd_write_memory(ctx->socket, ctx->ring_address + offsetof(dmlog_ring_t, flags), &new_flags, sizeof(uint32_t)) < 0)
+    if(ctx->backend_ops->write_memory(ctx->backend_ctx, ctx->ring_address + offsetof(dmlog_ring_t, flags), &new_flags, sizeof(uint32_t)) < 0)
     {
         TRACE_ERROR("Failed to set INPUT_AVAILABLE flag\n");
         return false;
@@ -677,7 +693,7 @@ bool monitor_handle_input_request(monitor_ctx_t *ctx)
 
     // Clear the INPUT_REQUESTED flag (write directly without waiting for not-busy)
     uint32_t new_flags = ctx->ring.flags & ~DMLOG_FLAG_INPUT_REQUESTED;
-    if(openocd_write_memory(ctx->socket, ctx->ring_address + offsetof(dmlog_ring_t, flags), &new_flags, sizeof(uint32_t)) < 0)
+    if(ctx->backend_ops->write_memory(ctx->backend_ctx, ctx->ring_address + offsetof(dmlog_ring_t, flags), &new_flags, sizeof(uint32_t)) < 0)
     {
         TRACE_ERROR("Failed to clear INPUT_REQUESTED flag\n");
         return false;
