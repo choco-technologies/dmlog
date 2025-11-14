@@ -139,11 +139,11 @@ run_test() {
             echo "Test input line $i"
         done > "$input_data"
         
-        # Run monitor with input file
-        timeout $MONITOR_TIMEOUT "$MONITOR" --gdb --port $GDB_PORT --addr $BUFFER_ADDR --input-file "$input_data" --verbose > "$test_output" 2>&1 &
+        # Run monitor with input file (without --verbose to avoid filling logs)
+        timeout $MONITOR_TIMEOUT "$MONITOR" --gdb --port $GDB_PORT --addr $BUFFER_ADDR --input-file "$input_data" > "$test_output" 2>&1 &
     else
-        # Run monitor without input for output-only tests
-        timeout $MONITOR_TIMEOUT "$MONITOR" --gdb --port $GDB_PORT --addr $BUFFER_ADDR --verbose > "$test_output" 2>&1 &
+        # Run monitor without input for output-only tests (without --verbose to avoid filling logs)
+        timeout $MONITOR_TIMEOUT "$MONITOR" --gdb --port $GDB_PORT --addr $BUFFER_ADDR > "$test_output" 2>&1 &
     fi
     
     local MONITOR_PID=$!
