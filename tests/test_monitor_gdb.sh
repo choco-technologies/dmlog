@@ -1,10 +1,27 @@
 #!/bin/bash
-# Integration test for dmlog_monitor with GDB server backend
-# This script:
-# 1. Builds the test application
-# 2. Starts it under gdbserver
-# 3. Uses dmlog_monitor to connect and verify logs
-# 4. Checks that the expected messages are received
+# Full GDB Integration Test for dmlog_monitor
+#
+# This is a comprehensive end-to-end test that validates the GDB backend by:
+# 1. Starting a real test application under gdbserver
+# 2. Connecting dmlog_monitor via GDB Remote Serial Protocol
+# 3. Reading actual dmlog buffers from the running application
+# 4. Verifying that the correct log messages are received
+#
+# WHY THIS TEST IS NOT RUN ON EVERY CI BUILD:
+# - Requires gdbserver and gdb to be installed
+# - Involves complex multi-process coordination (gdbserver, gdb, test app, monitor)
+# - Requires getting runtime memory addresses from the running process
+# - Can be flaky due to timing issues with process startup/shutdown
+# - Takes longer to run than basic tests
+#
+# WHEN THIS TEST RUNS:
+# - Automatically on all pull requests
+# - Manually via workflow_dispatch with run_full_gdb_test option
+# - Can be run manually by developers: ./tests/test_monitor_gdb.sh
+#
+# The basic test (test_monitor_gdb_basic.sh) runs on every build and validates
+# that the GDB backend compiles and handles connections correctly without
+# requiring the complex gdbserver setup.
 
 set -e
 
