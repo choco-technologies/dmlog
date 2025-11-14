@@ -265,6 +265,49 @@ int gdb_continue(int socket)
 }
 
 /**
+ * @brief Briefly resume target execution to allow firmware to process input
+ * 
+ * This function resumes target execution for a short period (100ms) and then
+ * interrupts it. This is needed after writing input data so the firmware
+ * has a chance to read it before we continue monitoring.
+ * 
+ * @param socket Socket file descriptor
+ * @return int 0 on success, -1 on failure
+ */
+int gdb_resume_briefly(int socket)
+{
+    // Send continue command
+    if (gdb_send_packet(socket, "c") < 0) {
+        return -1;
+    }
+    
+    if (gdb_wait_for_ack(socket) < 0) {
+        return -1;
+    }
+    
+    // Let the target run briefly (100ms) to process the input
+    usleep(100000);
+    
+    // Send interrupt (Ctrl-C) to stop the target
+    char interrupt = 0x03;
+    if (send(socket, &interrupt, 1, 0) != 1) {
+        TRACE_ERROR("Failed to send interrupt to GDB server\n");
+        return -1;
+    }
+    
+    // Wait for the stop reply (e.g., "T05" or "S05")
+    char stop_reply[256];
+    int len = gdb_receive_packet(socket, stop_reply, sizeof(stop_reply));
+    if (len < 0) {
+        TRACE_ERROR("Failed to receive stop reply from GDB server\n");
+        return -1;
+    }
+    
+    TRACE_VERBOSE("Target resumed briefly and stopped\n");
+    return 0;
+}
+
+/**
  * @brief Decode run-length encoding in GDB response
  * 
  * GDB uses run-length encoding: '*' followed by a character indicates

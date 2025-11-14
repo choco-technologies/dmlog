@@ -5,6 +5,7 @@
 #include <string.h>
 #include "monitor.h"
 #include "trace.h"
+#include "gdb.h"
 
 /**
  * @brief Get the amount of data left in the dmlog ring buffer
@@ -657,6 +658,16 @@ bool monitor_send_input(monitor_ctx_t *ctx, const char* input, size_t length)
 
     // Update local cache
     ctx->ring.flags = new_flags;
+
+    // For GDB backend, briefly resume target so firmware can process the input
+    if(ctx->backend_type == BACKEND_TYPE_GDB)
+    {
+        if(gdb_resume_briefly(ctx->socket) < 0)
+        {
+            TRACE_WARN("Failed to resume target briefly, input may not be processed\n");
+            // Don't fail - the input is written, just might not be processed immediately
+        }
+    }
 
     TRACE_VERBOSE("Sent %zu bytes to input buffer\n", length);
     return true;
