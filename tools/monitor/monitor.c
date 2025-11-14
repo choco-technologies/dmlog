@@ -611,15 +611,32 @@ bool monitor_send_input(monitor_ctx_t *ctx, const char* input, size_t length)
 
     // Write data to input buffer, handling wrap-around
     uint32_t input_buffer_addr = (uint32_t)((uintptr_t)ctx->ring.input_buffer);
-    for(size_t i = 0; i < length; i++)
+    
+    // Calculate how many bytes we can write before wrapping
+    size_t bytes_before_wrap = input_size - input_head;
+    size_t bytes_to_write_first = (length < bytes_before_wrap) ? length : bytes_before_wrap;
+    
+    // Write first chunk (up to buffer end or all bytes if no wrap)
+    uint32_t write_addr = input_buffer_addr + input_head;
+    if(backend_write_memory(ctx->backend_type, ctx->socket, write_addr, input, bytes_to_write_first) < 0)
     {
-        uint32_t write_addr = input_buffer_addr + input_head;
-        if(backend_write_memory(ctx->backend_type, ctx->socket, write_addr, &input[i], 1) < 0)
+        TRACE_ERROR("Failed to write %zu bytes to input buffer at offset %u\n", bytes_to_write_first, input_head);
+        return false;
+    }
+    
+    input_head = (input_head + bytes_to_write_first) % input_size;
+    
+    // If there are remaining bytes after wrap, write them from the beginning
+    if(bytes_to_write_first < length)
+    {
+        size_t remaining_bytes = length - bytes_to_write_first;
+        write_addr = input_buffer_addr;  // Start from beginning of buffer
+        if(backend_write_memory(ctx->backend_type, ctx->socket, write_addr, input + bytes_to_write_first, remaining_bytes) < 0)
         {
-            TRACE_ERROR("Failed to write input byte at offset %u\n", input_head);
+            TRACE_ERROR("Failed to write %zu remaining bytes to input buffer at offset 0\n", remaining_bytes);
             return false;
         }
-        input_head = (input_head + 1) % input_size;
+        input_head = remaining_bytes;  // New head position after wrap
     }
 
     // Update input_head_offset in the ring structure
