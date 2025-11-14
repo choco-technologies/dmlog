@@ -675,6 +675,9 @@ bool monitor_handle_input_request(monitor_ctx_t *ctx)
         return false;
     }
 
+    // Flush stdout to ensure all prompts/output are visible before reading input
+    fflush(stdout);
+
     // Read input from user (no prompt, firmware should print its own prompt)
     char input_buffer[512];
     if(fgets(input_buffer, sizeof(input_buffer), stdin) == NULL)
