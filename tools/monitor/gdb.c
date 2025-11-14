@@ -264,6 +264,86 @@ int gdb_continue(int socket)
     return 0;
 }
 
+// Static flag to track if target is running
+static bool target_is_running = false;
+
+/**
+ * @brief Interrupt the running target
+ * 
+ * @param socket Socket file descriptor
+ * @return int 0 on success, -1 on failure
+ */
+static int gdb_interrupt(int socket)
+{
+    if (!target_is_running) {
+        return 0; // Already stopped
+    }
+    
+    // Send interrupt (Ctrl-C)
+    char interrupt = 0x03;
+    if (send(socket, &interrupt, 1, 0) != 1) {
+        TRACE_ERROR("Failed to send interrupt to GDB server\n");
+        return -1;
+    }
+    
+    // Wait for the stop reply (e.g., "T05" or "S05")
+    char stop_reply[256];
+    int len = gdb_receive_packet(socket, stop_reply, sizeof(stop_reply));
+    if (len < 0) {
+        TRACE_ERROR("Failed to receive stop reply from GDB server\n");
+        return -1;
+    }
+    
+    target_is_running = false;
+    TRACE_VERBOSE("Target interrupted\n");
+    return 0;
+}
+
+/**
+ * @brief Resume target execution
+ * 
+ * Sends 'c' (continue) command to resume target execution. The target will
+ * run continuously until interrupted. This allows the firmware to process
+ * input, generate output, and handle the interactive shell.
+ * 
+ * @param socket Socket file descriptor
+ * @return int 0 on success, -1 on failure
+ */
+static int gdb_resume(int socket)
+{
+    if (target_is_running) {
+        return 0; // Already running
+    }
+    
+    // Send continue command
+    if (gdb_send_packet(socket, "c") < 0) {
+        return -1;
+    }
+    
+    if (gdb_wait_for_ack(socket) < 0) {
+        return -1;
+    }
+    
+    target_is_running = true;
+    TRACE_VERBOSE("Target resumed\n");
+    return 0;
+}
+
+/**
+ * @brief Resume target after writing input to allow firmware to process it
+ * 
+ * This function resumes target execution after input data has been written.
+ * The target will continue running, allowing the firmware to process the input,
+ * print output, and wait for the next input request.
+ * 
+ * @param socket Socket file descriptor
+ * @return int 0 on success, -1 on failure
+ */
+int gdb_resume_briefly(int socket)
+{
+    return gdb_resume(socket);
+}
+
 /**
  * @brief Decode run-length encoding in GDB response
  * 
@@ -323,15 +403,27 @@ static int gdb_decode_rle(const char *input, char *output, size_t output_size)
  */
 int gdb_read_memory(int socket, uint32_t address, void *buffer, size_t length)
 {
+    // Interrupt target if it's running to allow memory access
+    bool was_running = target_is_running;
+    if (was_running) {
+        if (gdb_interrupt(socket) < 0) {
+            return -1;
+        }
+    }
+    
     // Format: m<addr>,<length>
     char command[64];
     snprintf(command, sizeof(command), "m%x,%zx", address, length);
     
     if (gdb_send_packet(socket, command) < 0) {
+        // Resume if we interrupted
+        if (was_running) gdb_resume(socket);
         return -1;
     }
     
     if (gdb_wait_for_ack(socket) < 0) {
+        // Resume if we interrupted
+        if (was_running) gdb_resume(socket);
         return -1;
     }
     
@@ -339,12 +431,16 @@ int gdb_read_memory(int socket, uint32_t address, void *buffer, size_t length)
     char response[8192];
     int response_len = gdb_receive_packet(socket, response, sizeof(response));
     if (response_len < 0) {
+        // Resume if we interrupted
+        if (was_running) gdb_resume(socket);
         return -1;
     }
     
     // Check for error response
     if (response[0] == 'E') {
         TRACE_ERROR("GDB read memory error: %s\n", response);
+        // Resume if we interrupted
+        if (was_running) gdb_resume(socket);
         return -1;
     }
     
@@ -353,12 +449,16 @@ int gdb_read_memory(int socket, uint32_t address, void *buffer, size_t length)
     int decoded_len = gdb_decode_rle(response, decoded, sizeof(decoded));
     if (decoded_len < 0) {
         TRACE_ERROR("Failed to decode RLE in GDB response\n");
+        // Resume if we interrupted
+        if (was_running) gdb_resume(socket);
         return -1;
     }
     
     // Parse hex data
     if ((size_t)decoded_len < length * 2) {
         TRACE_ERROR("GDB response too short after decode: expected %zu hex chars, got %d\n", length * 2, decoded_len);
+        // Resume if we interrupted
+        if (was_running) gdb_resume(socket);
         return -1;
     }
     
@@ -369,6 +469,11 @@ int gdb_read_memory(int socket, uint32_t address, void *buffer, size_t length)
         hex_byte[1] = decoded[i * 2 + 1];
         hex_byte[2] = '\0';
         buf[i] = (uint8_t)strtoul(hex_byte, NULL, 16);
+    }
+    
+    // Resume target if we interrupted it
+    if (was_running) {
+        gdb_resume(socket);
     }
     
     return 0;
@@ -388,6 +493,14 @@ int gdb_read_memory(int socket, uint32_t address, void *buffer, size_t length)
  */
 int gdb_write_memory(int socket, uint32_t address, const void *buffer, size_t length)
 {
+    // Interrupt target if it's running to allow memory access
+    bool was_running = target_is_running;
+    if (was_running) {
+        if (gdb_interrupt(socket) < 0) {
+            return -1;
+        }
+    }
+    
     // Format: M<addr>,<length>:<hex data>
     // Maximum packet size is typically 16KB, so we may need to split large writes
     const size_t MAX_WRITE_SIZE = 1024; // Conservative limit
@@ -407,10 +520,14 @@ int gdb_write_memory(int socket, uint32_t address, const void *buffer, size_t le
         }
         
         if (gdb_send_packet(socket, command) < 0) {
+            // Resume if we interrupted
+            if (was_running) gdb_resume(socket);
             return -1;
         }
         
         if (gdb_wait_for_ack(socket) < 0) {
+            // Resume if we interrupted
+            if (was_running) gdb_resume(socket);
             return -1;
         }
         
@@ -418,15 +535,24 @@ int gdb_write_memory(int socket, uint32_t address, const void *buffer, size_t le
         char response[256];
         int response_len = gdb_receive_packet(socket, response, sizeof(response));
         if (response_len < 0) {
+            // Resume if we interrupted
+            if (was_running) gdb_resume(socket);
             return -1;
         }
         
         if (strcmp(response, "OK") != 0) {
             TRACE_ERROR("GDB write memory failed: %s\n", response);
+            // Resume if we interrupted
+            if (was_running) gdb_resume(socket);
             return -1;
         }
         
         offset += chunk_size;
+    }
+    
+    // Resume target if we interrupted it
+    if (was_running) {
+        gdb_resume(socket);
     }
     
     return 0;
