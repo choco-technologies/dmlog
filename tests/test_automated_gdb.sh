@@ -18,7 +18,7 @@ MONITOR="${BUILD_DIR}/tools/monitor/dmlog_monitor"
 SCENARIOS_DIR="${SCRIPT_DIR}/scenarios"
 
 GDB_PORT=1234
-MONITOR_TIMEOUT=15  # seconds to run monitor
+MONITOR_TIMEOUT=10  # seconds to run monitor (app exits gracefully after completing scenario)
 
 # Color output
 RED='\033[0;31m'
@@ -117,11 +117,29 @@ run_test() {
     
     echo "   gdbserver started (PID: $GDBSERVER_PID)"
     
-    # Get buffer address from test app (look for g_log_buffer symbol)
-    local BUFFER_ADDR=$(nm "$TEST_APP" | grep ' [BbDd] g_log_buffer' | awk '{print "0x" $1}')
+    # Wait for test app to write buffer address to file
+    # The app writes the address at runtime, which handles ASLR correctly
+    local addr_file="/tmp/dmlog_buffer_addr.txt"
+    local wait_count=0
+    while [ ! -f "$addr_file" ] && [ $wait_count -lt 50 ]; do
+        sleep 0.1
+        wait_count=$((wait_count + 1))
+    done
+    
+    if [ ! -f "$addr_file" ]; then
+        echo -e "${RED}✗ FAILED: Test application did not write buffer address${NC}"
+        cleanup $GDBSERVER_PID ""
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        return 1
+    fi
+    
+    # Read buffer address from file
+    local BUFFER_ADDR=$(cat "$addr_file")
+    rm -f "$addr_file"  # Clean up for next test
     
     if [ -z "$BUFFER_ADDR" ]; then
-        echo -e "${RED}✗ FAILED: Could not find g_log_buffer symbol in test application${NC}"
+        echo -e "${RED}✗ FAILED: Could not read buffer address from file${NC}"
+        cleanup $GDBSERVER_PID ""
         TESTS_FAILED=$((TESTS_FAILED + 1))
         return 1
     fi

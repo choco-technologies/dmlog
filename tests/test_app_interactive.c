@@ -92,6 +92,14 @@ int main(int argc, char *argv[]) {
     }
 
     printf("dmlog context created at: %p\n", (void*)g_log_buffer);
+    
+    // Write buffer address to file for test script to read
+    // This avoids issues with ASLR and address randomization in containers
+    FILE *addr_file = fopen("/tmp/dmlog_buffer_addr.txt", "w");
+    if (addr_file) {
+        fprintf(addr_file, "%p\n", (void*)g_log_buffer);
+        fclose(addr_file);
+    }
 
     // Open input file
     FILE *f = fopen(input_file, "r");
@@ -169,17 +177,14 @@ int main(int argc, char *argv[]) {
 
     fclose(f);
 
-    printf("Test scenario completed. Keeping process alive for monitor...\n");
-    printf("Press Ctrl+C to exit or wait for timeout...\n");
+    printf("Test scenario completed. Flushing final logs...\n");
+    dmlog_flush(g_dmlog_ctx);
+    
+    // Give monitor a moment to read final logs before exiting
+    // This is much shorter than the old 30-second wait
+    sleep(2);
 
-    // Keep running for a bit to allow monitor to read all logs
-    int countdown = 30;
-    while (keep_running && countdown > 0) {
-        sleep(1);
-        countdown--;
-    }
-
-    printf("Exiting...\n");
+    printf("Exiting gracefully...\n");
     dmlog_destroy(g_dmlog_ctx);
 
     return 0;
