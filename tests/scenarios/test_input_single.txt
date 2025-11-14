@@ -1,0 +1,7 @@
+# Test scenario: Single user input request
+# This tests both output and input paths
+
+Test message 1: Starting input test
+Test message 2: Requesting user input now
+<user_input>
+Test message 3: Input test completed

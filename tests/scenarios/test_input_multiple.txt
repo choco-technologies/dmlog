@@ -1,0 +1,10 @@
+# Test scenario: Multiple user input requests
+# This tests bidirectional communication with multiple requests
+
+Test message 1: First output
+<user_input>
+Test message 2: After first input
+<user_input>
+Test message 3: After second input
+<user_input>
+Test message 4: All inputs received

@@ -1,0 +1,18 @@
+# Test scenario: Complex mixed output and input
+# This tests various edge cases and realistic usage
+
+Test message 1: Application starting
+Test message 2: Initializing system
+Test message 3: System ready
+<user_input>
+Test message 4: Processing command
+Test message 5: Command executed successfully
+Test message 6: Waiting for next command
+<user_input>
+Test message 7: Another command received
+Test message 8: Command in progress
+Test message 9: Command completed
+Test message 10: Ready for more
+<user_input>
+Test message 11: Final command processed
+Test message 12: Shutting down gracefully

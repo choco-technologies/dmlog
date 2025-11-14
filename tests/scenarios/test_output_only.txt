@@ -1,0 +1,8 @@
+# Test scenario: Output only (no user input)
+# This tests the basic output path from firmware to PC
+
+Test message 1: Hello from dmlog!
+Test message 2: This is a simple output test
+Test message 3: Multiple lines of output
+Test message 4: Verifying dmlog ring buffer
+Test message 5: All done with output test
