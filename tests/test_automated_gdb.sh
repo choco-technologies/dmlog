@@ -135,6 +135,11 @@ run_test() {
     if [ "$input_count" -gt 0 ] 2>/dev/null; then
         echo -e "${YELLOW}   Note: Test has $input_count input request(s), but automated input testing not yet implemented${NC}"
         echo -e "${YELLOW}   Skipping this test for now${NC}"
+        
+        # Clean up gdbserver before returning
+        cleanup $GDBSERVER_PID ""
+        sleep 2
+        
         TESTS_RUN=$((TESTS_RUN - 1))  # Don't count this test
         return 0
     fi

@@ -39,6 +39,17 @@ jobs:
         cd build
         ctest --output-on-failure --verbose
     
+    - name: Install gdbserver for integration tests
+      run: |
+        apt-get update
+        apt-get install -y gdbserver
+    
+    - name: Run automated GDB integration tests
+      run: |
+        cd tests
+        ./test_automated_gdb.sh
+      timeout-minutes: 5
+    
     - name: Upload test results
       if: always()
       uses: actions/upload-artifact@v4
@@ -46,6 +57,14 @@ jobs:
         name: test-results
         path: build/Testing/
         retention-days: 30
+    
+    - name: Upload integration test logs on failure
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: integration-test-logs
+        path: /tmp/dmlog_test_*.txt
+        retention-days: 7
 
   coverage:
     runs-on: ubuntu-latest

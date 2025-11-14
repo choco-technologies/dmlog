@@ -390,9 +390,33 @@ ctest --output-on-failure
 # Comprehensive unit tests
 ./tests/test_dmlog_unit
 
+# Input/output tests
+./tests/test_input
+
 # Performance benchmarks
 ./tests/test_benchmark
 ```
+
+### Integration Tests with GDB
+
+The project includes automated integration tests that validate the complete dmlog system using gdbserver and dmlog_monitor:
+
+```bash
+# Install gdbserver (required)
+sudo apt-get install gdbserver
+
+# Run automated integration tests
+cd tests
+./test_automated_gdb.sh
+```
+
+These tests verify:
+- **Output path**: Firmware → PC communication via dmlog_monitor
+- **GDB backend integration**: Connection through GDB Remote Serial Protocol
+- **Multiple scenarios**: Different buffer sizes and usage patterns
+- **Real-world flow**: Complete end-to-end testing with actual gdbserver
+
+The integration tests run automatically in CI on every build.
 
 ### Code Coverage
 
