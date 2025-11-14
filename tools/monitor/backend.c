@@ -29,16 +29,19 @@ static int openocd_backend_disconnect(backend_ctx_t ctx)
     return openocd_disconnect(socket);
 }
 
-static int openocd_backend_read_memory(backend_ctx_t ctx, uint32_t address, void *buffer, size_t length)
+static int openocd_backend_read_memory(backend_ctx_t ctx, uint64_t address, void *buffer, size_t length)
 {
     int socket = (int)(intptr_t)ctx;
-    return openocd_read_memory(socket, address, buffer, length);
+    // OpenOCD uses 32-bit addresses, so truncate for now
+    // This is acceptable as OpenOCD is typically used with 32-bit microcontrollers
+    return openocd_read_memory(socket, (uint32_t)address, buffer, length);
 }
 
-static int openocd_backend_write_memory(backend_ctx_t ctx, uint32_t address, const void *buffer, size_t length)
+static int openocd_backend_write_memory(backend_ctx_t ctx, uint64_t address, const void *buffer, size_t length)
 {
     int socket = (int)(intptr_t)ctx;
-    return openocd_write_memory(socket, address, buffer, length);
+    // OpenOCD uses 32-bit addresses, so truncate for now
+    return openocd_write_memory(socket, (uint32_t)address, buffer, length);
 }
 
 /**
@@ -65,13 +68,13 @@ static int gdb_backend_disconnect(backend_ctx_t ctx)
     return gdb_disconnect(socket);
 }
 
-static int gdb_backend_read_memory(backend_ctx_t ctx, uint32_t address, void *buffer, size_t length)
+static int gdb_backend_read_memory(backend_ctx_t ctx, uint64_t address, void *buffer, size_t length)
 {
     int socket = (int)(intptr_t)ctx;
     return gdb_read_memory(socket, address, buffer, length);
 }
 
-static int gdb_backend_write_memory(backend_ctx_t ctx, uint32_t address, const void *buffer, size_t length)
+static int gdb_backend_write_memory(backend_ctx_t ctx, uint64_t address, const void *buffer, size_t length)
 {
     int socket = (int)(intptr_t)ctx;
     return gdb_write_memory(socket, address, buffer, length);

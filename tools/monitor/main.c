@@ -36,7 +36,7 @@ int main(int argc, char *argv[])
     bool blocking_mode = false;
     bool snapshot_mode = false;
     bool use_gdb = false;
-    uint32_t ring_buffer_address = 0x20010000; // Default address
+    uint64_t ring_buffer_address = 0x20010000; // Default address
     backend_addr_t backend_addr;
     strncpy(backend_addr.host, OPENOCD_DEFAULT_HOST, sizeof(backend_addr.host));
     backend_addr.port = OPENOCD_DEFAULT_PORT;
@@ -66,7 +66,7 @@ int main(int argc, char *argv[])
         }
         else if(strcmp(argv[i], "--addr") == 0 && i + 1 < argc)
         {
-            ring_buffer_address = (uint32_t)strtoul(argv[++i], NULL, 0);
+            ring_buffer_address = (uint64_t)strtoull(argv[++i], NULL, 0);
         }
         else if(strcmp(argv[i], "--trace-level") == 0 && i + 1 < argc)
         {

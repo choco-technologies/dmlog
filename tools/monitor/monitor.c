@@ -56,7 +56,7 @@ static bool read_from_buffer(monitor_ctx_t* ctx, void* dst, size_t length)
     uint32_t left_size = ctx->ring.buffer_size - ctx->tail_offset;
     if(length <= left_size)
     {
-        uint32_t address = (uint32_t)((uintptr_t)ctx->ring.buffer) + ctx->tail_offset;
+        uint64_t address = (uint64_t)((uintptr_t)ctx->ring.buffer) + ctx->tail_offset;
         if(ctx->backend_ops->read_memory(ctx->backend_ctx, address, dst, length) < 0)
         {
             TRACE_ERROR("Failed to read %zu bytes from buffer at offset %u\n", length, ctx->tail_offset);
@@ -67,14 +67,14 @@ static bool read_from_buffer(monitor_ctx_t* ctx, void* dst, size_t length)
     else
     {
         // Read in two parts due to wrap-around
-        uint32_t address = (uint32_t)((uintptr_t)ctx->ring.buffer) + ctx->tail_offset;
+        uint64_t address = (uint64_t)((uintptr_t)ctx->ring.buffer) + ctx->tail_offset;
         if(ctx->backend_ops->read_memory(ctx->backend_ctx, address, dst, left_size) < 0)
         {
             TRACE_ERROR("Failed to read %u bytes from buffer at offset %u\n", left_size, ctx->tail_offset);
             return false;
         }
         size_t remaining = length - left_size;
-        address = (uint32_t)((uintptr_t)ctx->ring.buffer);
+        address = (uint64_t)((uintptr_t)ctx->ring.buffer);
         if(ctx->backend_ops->read_memory(ctx->backend_ctx, address, (uint8_t*)dst + left_size, remaining) < 0)
         {
             TRACE_ERROR("Failed to read %zu bytes from buffer at offset 0\n", remaining);
@@ -94,7 +94,7 @@ static bool read_from_buffer(monitor_ctx_t* ctx, void* dst, size_t length)
  * @param snapshot_mode Whether to use snapshot mode to reduce target reads
  * @return monitor_ctx_t* Pointer to initialized monitor context, or NULL on failure
  */
-monitor_ctx_t *monitor_connect(backend_addr_t *addr, backend_type_t backend_type, uint32_t ring_address, bool snapshot_mode)
+monitor_ctx_t *monitor_connect(backend_addr_t *addr, backend_type_t backend_type, uint64_t ring_address, bool snapshot_mode)
 {
     monitor_ctx_t *ctx = malloc(sizeof(monitor_ctx_t));
     if(ctx == NULL)
@@ -146,7 +146,7 @@ monitor_ctx_t *monitor_connect(backend_addr_t *addr, backend_type_t backend_type
 
     ctx->tail_offset = ctx->ring.tail_offset;
 
-    TRACE_INFO("Connected to dmlog ring buffer at 0x%08X\n", ring_address);
+    TRACE_INFO("Connected to dmlog ring buffer at 0x%016lX\n", ring_address);
     return ctx;
 }
 
@@ -281,7 +281,7 @@ bool monitor_update_entry(monitor_ctx_t *ctx, bool blocking_mode)
     }
 
     memset(ctx->entry_buffer, 0, sizeof(ctx->entry_buffer));
-    uint32_t entry_address = (uint32_t)((uintptr_t)ctx->ring.buffer) + ctx->tail_offset;
+    uint64_t entry_address = (uint64_t)((uintptr_t)ctx->ring.buffer) + ctx->tail_offset;
     if(!read_from_buffer(ctx, ctx->entry_buffer, DMOD_LOG_MAX_ENTRY_SIZE) )
     {
         TRACE_ERROR("Failed to read dmlog entry data from target\n");
@@ -639,7 +639,7 @@ bool monitor_send_input(monitor_ctx_t *ctx, const char* input, size_t length)
     }
 
     // Update input_head_offset in the ring structure
-    uint32_t head_offset_addr = ctx->ring_address + offsetof(dmlog_ring_t, input_head_offset);
+    uint64_t head_offset_addr = ctx->ring_address + offsetof(dmlog_ring_t, input_head_offset);
     if(ctx->backend_ops->write_memory(ctx->backend_ctx, head_offset_addr, &input_head, sizeof(dmlog_index_t)) < 0)
     {
         TRACE_ERROR("Failed to update input_head_offset\n");

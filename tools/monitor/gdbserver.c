@@ -184,16 +184,8 @@ int gdb_connect(gdb_addr_t *addr)
         if (connect(sock, rp->ai_addr, rp->ai_addrlen) == 0) {
             freeaddrinfo(res);
             
-            // Disable ACK mode for faster communication (optional)
-            // Send QStartNoAckMode packet
-            char response[256];
-            if (gdb_send_packet(sock, "QStartNoAckMode") == 0) {
-                if (gdb_receive_packet(sock, response, sizeof(response)) > 0) {
-                    if (strcmp(response, "OK") == 0) {
-                        TRACE_INFO("GDB NoAck mode enabled\n");
-                    }
-                }
-            }
+            // Note: NoAck mode is disabled because it requires tracking state
+            // and would complicate the implementation. ACK mode is reliable enough.
             
             TRACE_INFO("Connected to GDB server at %s:%d\n", addr->host, addr->port);
             return sock;
@@ -232,11 +224,11 @@ int gdb_disconnect(int socket)
  * @param length Number of bytes to read
  * @return int 0 on success, -1 on failure
  */
-int gdb_read_memory(int socket, uint32_t address, void *buffer, size_t length)
+int gdb_read_memory(int socket, uint64_t address, void *buffer, size_t length)
 {
     // Format: m<addr>,<length>
     char command[64];
-    snprintf(command, sizeof(command), "m%x,%zx", address, length);
+    snprintf(command, sizeof(command), "m%lx,%zx", address, length);
     
     if (gdb_send_packet(socket, command) < 0) {
         return -1;
@@ -289,7 +281,7 @@ int gdb_read_memory(int socket, uint32_t address, void *buffer, size_t length)
  * @param length Number of bytes to write
  * @return int 0 on success, -1 on failure
  */
-int gdb_write_memory(int socket, uint32_t address, const void *buffer, size_t length)
+int gdb_write_memory(int socket, uint64_t address, const void *buffer, size_t length)
 {
     // Format: M<addr>,<length>:<hex data>
     // Maximum packet size is typically 16KB, so we may need to split large writes
@@ -302,7 +294,7 @@ int gdb_write_memory(int socket, uint32_t address, const void *buffer, size_t le
         size_t chunk_size = (length - offset > MAX_WRITE_SIZE) ? MAX_WRITE_SIZE : (length - offset);
         
         char command[4096];
-        int cmd_len = snprintf(command, sizeof(command), "M%x,%lx:", address + (uint32_t)offset, (unsigned long)chunk_size);
+        int cmd_len = snprintf(command, sizeof(command), "M%lx,%lx:", address + offset, (unsigned long)chunk_size);
         
         // Append hex data
         for (size_t i = 0; i < chunk_size; i++) {

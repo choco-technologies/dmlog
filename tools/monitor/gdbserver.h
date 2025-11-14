@@ -15,7 +15,7 @@ typedef struct
 
 extern int gdb_connect(gdb_addr_t *addr);
 extern int gdb_disconnect(int socket);
-extern int gdb_read_memory(int socket, uint32_t address, void *buffer, size_t length);
-extern int gdb_write_memory(int socket, uint32_t address, const void *buffer, size_t length);
+extern int gdb_read_memory(int socket, uint64_t address, void *buffer, size_t length);
+extern int gdb_write_memory(int socket, uint64_t address, const void *buffer, size_t length);
 
 #endif // GDBSERVER_H

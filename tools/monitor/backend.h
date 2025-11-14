@@ -32,8 +32,8 @@ typedef struct {
 typedef struct {
     backend_ctx_t (*connect)(backend_addr_t *addr);
     int (*disconnect)(backend_ctx_t ctx);
-    int (*read_memory)(backend_ctx_t ctx, uint32_t address, void *buffer, size_t length);
-    int (*write_memory)(backend_ctx_t ctx, uint32_t address, const void *buffer, size_t length);
+    int (*read_memory)(backend_ctx_t ctx, uint64_t address, void *buffer, size_t length);
+    int (*write_memory)(backend_ctx_t ctx, uint64_t address, const void *buffer, size_t length);
 } backend_ops_t;
 
 /**
