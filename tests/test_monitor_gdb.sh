@@ -54,18 +54,8 @@ if ! command -v gdbserver &> /dev/null; then
     exit 0
 fi
 
-# Check if gdb is available (needed to start the program)
-if ! command -v gdb &> /dev/null; then
-    echo "SKIP: gdb not found. This test requires gdb to be installed."
-    echo "      Install with: apt-get install gdb"
-    exit 0
-fi
-
-# Note: This test has known limitations with gdbserver in multi mode
-# where only one GDB client can connect at a time. In CI, this test
-# may not fully work, but it validates the GDB protocol implementation.
 echo "NOTE: This test validates GDB server integration end-to-end."
-echo "      Due to gdbserver limitations, it may not work in all CI environments."
+echo "      The monitor connects to gdbserver which starts and runs the test application."
 
 echo "1. Starting test application under gdbserver..."
 # Start gdbserver directly with the application (simpler than multi mode)
@@ -95,68 +85,28 @@ if [ -z "$BUFFER_OFFSET" ]; then
     exit 1
 fi
 
-echo "   Buffer offset: $BUFFER_OFFSET"
+echo "   Buffer address (fixed with -no-pie): $BUFFER_OFFSET"
 
-# Connect with GDB to start the program running
-echo "   Connecting with GDB to start test application..."
-cat > "$GDB_CMDS" << EOF
-set pagination off
-set confirm off
-target remote :1234
-continue &
-shell sleep 2
-detach
-quit
-EOF
+# With PIE disabled, the buffer address IS the symbol address
+BUFFER_ADDR="$BUFFER_OFFSET"
 
-# Run GDB to start the program running then detach
-gdb -batch -x "$GDB_CMDS" "$TEST_APP" 2>&1 | tee /tmp/gdb_session.log
+echo "   dmlog buffer will be at: $BUFFER_ADDR"
+echo "   Note: gdbserver will start the app when dmlog_monitor connects..."
+echo "   Waiting a moment for gdbserver to be ready..."
 
-# Wait for the program to initialize and write test messages
-sleep 8
-APP_PID=$(grep -oP 'Process .* created; pid = \K\d+' "$APP_OUTPUT" | tail -1)
-
-if [ -z "$APP_PID" ]; then
-    echo "ERROR: Could not find application PID"
-    cat "$APP_OUTPUT"
-    echo "GDB output:"
-    cat /tmp/gdb_session.log
-    kill $GDBSERVER_PID 2>/dev/null || true
-    exit 1
-fi
-
-echo "   Application running (PID: $APP_PID)"
-
-# Get the base address from /proc/pid/maps
-# Look for the first mapping with r-xp (executable) that contains the app name
-BASE_ADDR=$(grep "$(basename "$TEST_APP")" /proc/$APP_PID/maps 2>/dev/null | head -1 | awk '{print $1}' | cut -d'-' -f1)
-
-if [ -z "$BASE_ADDR" ]; then
-    echo "ERROR: Could not find base address in process maps"
-    echo "Process maps:"
-    cat /proc/$APP_PID/maps 2>/dev/null || echo "Could not read /proc/$APP_PID/maps"
-    kill $GDBSERVER_PID 2>/dev/null || true
-    exit 1
-fi
-
-# Calculate actual runtime address
-BASE_DEC=$((16#${BASE_ADDR}))
-OFFSET_DEC=$((16#${BUFFER_OFFSET#0x}))
-ACTUAL_ADDR_DEC=$((BASE_DEC + OFFSET_DEC))
-BUFFER_ADDR=$(printf "0x%x" $ACTUAL_ADDR_DEC)
-
-echo "   Base address: 0x$BASE_ADDR, Offset: $BUFFER_OFFSET"
-echo "   dmlog buffer address: $BUFFER_ADDR"
-echo "   Program is running, waiting for test messages to be written..."
-
-# Give time for the program to initialize and write test messages
-sleep 5
+# Brief wait for gdbserver to fully initialize
+sleep 2
 
 echo "2. Connecting dmlog_monitor to gdbserver..."
 echo "   Monitor command: $MONITOR --gdb --port $GDB_PORT --addr $BUFFER_ADDR --verbose"
+echo "   Note: Monitor connection will start the app, then monitor will read logs for 10 seconds"
 
-# Run dmlog_monitor with timeout to capture logs for 5 seconds
-timeout 5 "$MONITOR" --gdb --port $GDB_PORT --addr $BUFFER_ADDR --verbose > "$TEST_OUTPUT" 2>&1 || MONITOR_EXIT=$?
+# Run dmlog_monitor with timeout to capture logs
+# The app will start when monitor connects, so we need enough time for:
+# - App to initialize
+# - App to write test messages
+# - Monitor to read them
+timeout 10 "$MONITOR" --gdb --port $GDB_PORT --addr $BUFFER_ADDR --verbose > "$TEST_OUTPUT" 2>&1 || MONITOR_EXIT=$?
 
 if [ ! -s "$TEST_OUTPUT" ]; then
     echo "   WARNING: Monitor produced no output (exit code: ${MONITOR_EXIT:-0})"

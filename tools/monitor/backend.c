@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <unistd.h>
 
 /**
  * @brief OpenOCD backend wrapper functions
@@ -55,6 +56,15 @@ static backend_ctx_t gdb_backend_connect(backend_addr_t *addr)
     
     int socket = gdb_connect(&gdb_addr);
     if (socket < 0) {
+        return NULL;
+    }
+    
+    // Send continue command to start/resume the target
+    // When gdbserver starts a process, it stops at entry point
+    // We need to continue it so the program can run and initialize
+    // gdb_continue() will run the target then interrupt it after a delay
+    if (gdb_continue(socket) < 0) {
+        gdb_disconnect(socket);
         return NULL;
     }
     

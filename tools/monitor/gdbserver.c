@@ -213,6 +213,97 @@ int gdb_disconnect(int socket)
 }
 
 /**
+ * @brief Send continue command to GDB server
+ * 
+ * Sends 'c' command to resume execution of the target.
+ * This is needed when gdbserver starts a process - it stops at entry point.
+ * 
+ * Note: After sending 'c', we use Ctrl-C (0x03) to interrupt the target
+ * so it stops and we can read memory. This is the standard GDB protocol.
+ * 
+ * @param socket Socket file descriptor
+ * @return int 0 on success, -1 on failure
+ */
+int gdb_continue(int socket)
+{
+    // Send continue command
+    if (gdb_send_packet(socket, "c") < 0) {
+        return -1;
+    }
+    
+    if (gdb_wait_for_ack(socket) < 0) {
+        return -1;
+    }
+    
+    // The 'c' command causes gdbserver to run the target and wait for it to stop.
+    // We need to let the program run for a bit, then interrupt it so we can
+    // read memory. Send Ctrl-C (0x03) to interrupt.
+    usleep(1000000); // Let it run for 1 second to initialize and write data
+    
+    char interrupt = 0x03;
+    if (send(socket, &interrupt, 1, 0) != 1) {
+        TRACE_ERROR("Failed to send interrupt to GDB server\n");
+        return -1;
+    }
+    
+    // Wait for the stop reply (e.g., "T05" or "S05")
+    char stop_reply[256];
+    int len = gdb_receive_packet(socket, stop_reply, sizeof(stop_reply));
+    if (len < 0) {
+        TRACE_ERROR("Failed to receive stop reply from GDB server\n");
+        return -1;
+    }
+    
+    TRACE_INFO("Target started and stopped, ready for memory access\n");
+    return 0;
+}
+
+/**
+ * @brief Decode run-length encoding in GDB response
+ * 
+ * GDB uses run-length encoding: '*' followed by a character indicates
+ * repetition. The repeat count is the character minus 29.
+ * For example: "0*3" means "0000" (repeat '0' three times)
+ * 
+ * @param input Input string with run-length encoding
+ * @param output Output buffer for decoded string
+ * @param output_size Size of output buffer
+ * @return int Length of decoded string, or -1 on error
+ */
+static int gdb_decode_rle(const char *input, char *output, size_t output_size)
+{
+    size_t in_idx = 0;
+    size_t out_idx = 0;
+    
+    while (input[in_idx] != '\0' && out_idx < output_size - 1) {
+        if (input[in_idx] == '*') {
+            // Run-length encoding: next char - 29 = repeat count
+            in_idx++;
+            if (input[in_idx] == '\0') {
+                return -1; // Invalid RLE
+            }
+            int repeat_count = (unsigned char)input[in_idx] - 29;
+            if (repeat_count <= 0 || out_idx == 0) {
+                return -1; // Invalid repeat count
+            }
+            
+            // Repeat the previous character
+            char prev_char = output[out_idx - 1];
+            for (int i = 0; i < repeat_count && out_idx < output_size - 1; i++) {
+                output[out_idx++] = prev_char;
+            }
+            in_idx++;
+        } else {
+            // Regular character
+            output[out_idx++] = input[in_idx++];
+        }
+    }
+    
+    output[out_idx] = '\0';
+    return out_idx;
+}
+
+/**
  * @brief Read memory from target via GDB server
  * 
  * Uses GDB Remote Serial Protocol 'm' command: m addr,length
@@ -251,17 +342,25 @@ int gdb_read_memory(int socket, uint64_t address, void *buffer, size_t length)
         return -1;
     }
     
+    // Decode run-length encoding
+    char decoded[8192];
+    int decoded_len = gdb_decode_rle(response, decoded, sizeof(decoded));
+    if (decoded_len < 0) {
+        TRACE_ERROR("Failed to decode RLE in GDB response\n");
+        return -1;
+    }
+    
     // Parse hex data
-    if ((size_t)response_len < length * 2) {
-        TRACE_ERROR("GDB response too short: expected %zu bytes, got %d\n", length * 2, response_len);
+    if ((size_t)decoded_len < length * 2) {
+        TRACE_ERROR("GDB response too short after decode: expected %zu hex chars, got %d\n", length * 2, decoded_len);
         return -1;
     }
     
     uint8_t *buf = (uint8_t *)buffer;
     for (size_t i = 0; i < length; i++) {
         char hex_byte[3];
-        hex_byte[0] = response[i * 2];
-        hex_byte[1] = response[i * 2 + 1];
+        hex_byte[0] = decoded[i * 2];
+        hex_byte[1] = decoded[i * 2 + 1];
         hex_byte[2] = '\0';
         buf[i] = (uint8_t)strtoul(hex_byte, NULL, 16);
     }

@@ -90,6 +90,11 @@ target_include_directories(test_monitor_app
     PRIVATE
         ${CMAKE_SOURCE_DIR}/include
 )
+# Disable PIE for test_monitor_app to get predictable addresses for gdbserver testing
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(test_monitor_app PRIVATE -fno-pie)
+    target_link_options(test_monitor_app PRIVATE -no-pie)
+endif()
 
 add_test(NAME dmlog_unit   COMMAND test_dmlog_unit)
 add_test(NAME simple_test  COMMAND test_simple)
