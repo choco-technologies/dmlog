@@ -65,6 +65,8 @@ jobs:
     # This test requires gdbserver and complex setup, so it's separate from basic tests
     if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.run_full_gdb_test)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     container:
       image: chocotechnologies/dmod:1.0.2
     
