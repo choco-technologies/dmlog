@@ -130,22 +130,21 @@ run_test() {
     
     echo "Step 2: Connecting dmlog_monitor..."
     
-    # For now, we'll test output-only scenarios
-    # Input testing would require more complex setup with expect or similar tools
+    # Prepare input file if test has input requests
     if [ "$input_count" -gt 0 ] 2>/dev/null; then
-        echo -e "${YELLOW}   Note: Test has $input_count input request(s), but automated input testing not yet implemented${NC}"
-        echo -e "${YELLOW}   Skipping this test for now${NC}"
+        echo "   Test requires $input_count input(s), preparing input file..."
         
-        # Clean up gdbserver before returning
-        cleanup $GDBSERVER_PID ""
-        sleep 2
+        # Generate input file with test inputs
+        for i in $(seq 1 $input_count); do
+            echo "Test input line $i"
+        done > "$input_data"
         
-        TESTS_RUN=$((TESTS_RUN - 1))  # Don't count this test
-        return 0
+        # Run monitor with input file
+        timeout $MONITOR_TIMEOUT "$MONITOR" --gdb --port $GDB_PORT --addr $BUFFER_ADDR --input-file "$input_data" --verbose > "$test_output" 2>&1 &
+    else
+        # Run monitor without input for output-only tests
+        timeout $MONITOR_TIMEOUT "$MONITOR" --gdb --port $GDB_PORT --addr $BUFFER_ADDR --verbose > "$test_output" 2>&1 &
     fi
-    
-    # Run monitor without input for output-only tests
-    timeout $MONITOR_TIMEOUT "$MONITOR" --gdb --port $GDB_PORT --addr $BUFFER_ADDR --verbose > "$test_output" 2>&1 &
     
     local MONITOR_PID=$!
     

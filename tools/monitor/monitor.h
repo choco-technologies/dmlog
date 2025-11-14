@@ -1,6 +1,7 @@
 #ifndef MONITOR_H
 #define MONITOR_H
 
+#include <stdio.h>
 #include "dmlog.h"
 #include "backend.h"
 
@@ -17,6 +18,7 @@ typedef struct
     size_t              snapshot_size;
     time_t              last_update_time;
     backend_type_t      backend_type;
+    FILE*               input_file;  // Optional input file for automated testing
 } monitor_ctx_t;
 
 monitor_ctx_t* monitor_connect(backend_addr_t *addr, uint32_t ring_address, bool snapshot_mode);

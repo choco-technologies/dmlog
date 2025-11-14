@@ -26,6 +26,7 @@ void usage(const char *progname)
     printf("  --blocking    Use blocking mode for reading log entries\n");
     printf("  --snapshot    Enable snapshot mode to reduce target reads\n");
     printf("  --gdb         Use GDB backend instead of OpenOCD\n");
+    printf("  --input-file  File to read input from for automated testing\n");
 }
 
 int main(int argc, char *argv[])
@@ -33,6 +34,7 @@ int main(int argc, char *argv[])
     bool show_timestamps = false;
     bool blocking_mode = false;
     bool snapshot_mode = false;
+    const char *input_file_path = NULL;
     uint32_t ring_buffer_address = 0x20010000; // Default address
     backend_addr_t backend_addr;
     const backend_addr_t* default_addr = backend_default_addrs[BACKEND_TYPE_OPENOCD];
@@ -104,6 +106,10 @@ int main(int argc, char *argv[])
         {
             snapshot_mode = true;
         }
+        else if(strcmp(argv[i], "--input-file") == 0 && i + 1 < argc)
+        {
+            input_file_path = argv[++i];
+        }
         else if(strcmp(argv[i], "--gdb") == 0)
         {
             const backend_addr_t* gdb_default = backend_default_addrs[BACKEND_TYPE_GDB];
@@ -142,6 +148,19 @@ int main(int argc, char *argv[])
     {
         TRACE_ERROR("Failed to connect to monitor\n");
         return 1;
+    }
+
+    // Open input file if specified
+    if(input_file_path != NULL)
+    {
+        ctx->input_file = fopen(input_file_path, "r");
+        if(ctx->input_file == NULL)
+        {
+            TRACE_ERROR("Failed to open input file: %s\n", input_file_path);
+            monitor_disconnect(ctx);
+            return 1;
+        }
+        TRACE_INFO("Using input file: %s\n", input_file_path);
     }
 
     monitor_run(ctx, show_timestamps, blocking_mode);

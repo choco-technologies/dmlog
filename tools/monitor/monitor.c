@@ -137,6 +137,7 @@ monitor_ctx_t *monitor_connect(backend_addr_t *addr, uint32_t ring_address, bool
     }
 
     ctx->tail_offset = ctx->ring.tail_offset;
+    ctx->input_file = NULL;  // No input file by default
 
     TRACE_INFO("Connected to dmlog ring buffer at 0x%08X\n", ring_address);
     return ctx;
@@ -151,6 +152,10 @@ void monitor_disconnect(monitor_ctx_t *ctx)
 {
     if(ctx)
     {
+        if(ctx->input_file)
+        {
+            fclose(ctx->input_file);
+        }
         backend_disconnect(ctx->backend_type, ctx->socket);
         free(ctx);
         TRACE_INFO("Disconnected from monitor\n");
@@ -687,11 +692,20 @@ bool monitor_handle_input_request(monitor_ctx_t *ctx)
         return false;
     }
 
-    // Read input from user (no prompt, firmware should print its own prompt)
+    // Read input from file or stdin (no prompt, firmware should print its own prompt)
     char input_buffer[512];
-    if(fgets(input_buffer, sizeof(input_buffer), stdin) == NULL)
+    FILE* input_source = ctx->input_file ? ctx->input_file : stdin;
+    
+    if(fgets(input_buffer, sizeof(input_buffer), input_source) == NULL)
     {
-        TRACE_ERROR("Failed to read input from user\n");
+        if(ctx->input_file)
+        {
+            TRACE_ERROR("Failed to read input from input file (end of file or error)\n");
+        }
+        else
+        {
+            TRACE_ERROR("Failed to read input from user\n");
+        }
         return false;
     }
 
