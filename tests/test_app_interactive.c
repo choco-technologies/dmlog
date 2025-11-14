@@ -26,10 +26,13 @@
 #include <stdbool.h>
 
 #define DEFAULT_BUFFER_SIZE (4 * 1024)
+#define MAX_BUFFER_SIZE (16 * 1024)
 #define MAX_LINE_LENGTH 512
 
 static volatile bool keep_running = true;
 static dmlog_ctx_t g_dmlog_ctx = NULL;
+// Use static buffer so it can be found with nm for gdbserver testing
+static char g_log_buffer[MAX_BUFFER_SIZE];
 
 void signal_handler(int signum) {
     (void)signum;
@@ -75,28 +78,26 @@ int main(int argc, char *argv[]) {
     printf("Input file: %s\n", input_file);
     printf("Buffer size: %zu bytes\n", buffer_size);
 
-    // Allocate and create dmlog buffer
-    char *log_buffer = malloc(buffer_size);
-    if (!log_buffer) {
-        fprintf(stderr, "Error: Failed to allocate log buffer\n");
+    // Validate buffer size
+    if (buffer_size > MAX_BUFFER_SIZE) {
+        fprintf(stderr, "Error: Buffer size exceeds maximum (%d bytes)\n", MAX_BUFFER_SIZE);
         return 1;
     }
 
-    g_dmlog_ctx = dmlog_create(log_buffer, buffer_size);
+    // Create dmlog buffer using static global buffer
+    g_dmlog_ctx = dmlog_create(g_log_buffer, buffer_size);
     if (!g_dmlog_ctx) {
         fprintf(stderr, "Error: Failed to create dmlog context\n");
-        free(log_buffer);
         return 1;
     }
 
-    printf("dmlog context created at: %p\n", (void*)log_buffer);
+    printf("dmlog context created at: %p\n", (void*)g_log_buffer);
 
     // Open input file
     FILE *f = fopen(input_file, "r");
     if (!f) {
         fprintf(stderr, "Error: Failed to open input file: %s\n", input_file);
         dmlog_destroy(g_dmlog_ctx);
-        free(log_buffer);
         return 1;
     }
 
@@ -180,7 +181,6 @@ int main(int argc, char *argv[]) {
 
     printf("Exiting...\n");
     dmlog_destroy(g_dmlog_ctx);
-    free(log_buffer);
 
     return 0;
 }
