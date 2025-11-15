@@ -8,3 +8,4 @@ Test message 2: After first input
 Test message 3: After second input
 <user_input>
 Test message 4: All inputs received
+Test message 5: Exiting now

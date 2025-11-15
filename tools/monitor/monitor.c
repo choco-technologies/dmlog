@@ -231,6 +231,8 @@ bool monitor_wait_until_not_busy(monitor_ctx_t *ctx)
 /**
  * @brief Wait for new data to be available in the dmlog ring buffer
  * 
+ * Also returns early if firmware requests input, to avoid deadlock.
+ * 
  * @param ctx Pointer to the monitor context
  * @return true on success, false on failure
  */
@@ -243,10 +245,19 @@ bool monitor_wait_for_new_data(monitor_ctx_t *ctx)
         usleep(10000);
         if(!monitor_update_ring(ctx))
         {
+            TRACE_ERROR("monitor_update_ring failed in wait_for_new_data\n");
             return false;
+        }
+        // Check if firmware requested input - return early to handle it
+        // This prevents deadlock when firmware requests input without producing output
+        if(ctx->ring.flags & DMLOG_FLAG_INPUT_REQUESTED)
+        {
+            TRACE_VERBOSE("Input requested (flags=0x%08X), returning from wait\n", ctx->ring.flags);
+            return true;
         }
         empty = is_buffer_empty(ctx);
     }
+    TRACE_VERBOSE("New data available, returning from wait\n");
     return true;
 }
 
@@ -384,6 +395,7 @@ void monitor_run(monitor_ctx_t *ctx, bool show_timestamps, bool blocking_mode)
                 {
                     printf("%s", entry_data);
                 }
+                fflush(stdout);  // Ensure output is written immediately
             }
             
             // Check for input request from firmware (after printing all output)
@@ -399,7 +411,6 @@ void monitor_run(monitor_ctx_t *ctx, bool show_timestamps, bool blocking_mode)
         const char* entry_data = monitor_get_entry_buffer(ctx);
         while(monitor_wait_for_new_data(ctx) )
         {
-            usleep(100000); // Sleep briefly to allow data to accumulate
             while(!is_buffer_empty(ctx))
             {
                 if(!monitor_update_entry(ctx, blocking_mode))
@@ -432,10 +443,16 @@ void monitor_run(monitor_ctx_t *ctx, bool show_timestamps, bool blocking_mode)
                 {
                     printf("%s", entry_data);
                 }
+                fflush(stdout);  // Ensure output is written immediately
             }
             
             // Check for input request from firmware (after printing all output)
-            monitor_handle_input_request(ctx);
+            if(!monitor_handle_input_request(ctx))
+            {
+                return; // exit on EOF
+            }
+
+            usleep(100000); // Sleep briefly to allow data to accumulate
         }
     }
 }
@@ -728,5 +745,5 @@ bool monitor_handle_input_request(monitor_ctx_t *ctx)
     // Update local cache
     ctx->ring.flags = new_flags;
 
-    return true;
+    return feof(input_source) == 0;
 }
