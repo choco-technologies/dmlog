@@ -376,10 +376,12 @@ static int gdb_decode_rle(const char *input, char *output, size_t output_size)
             // Run-length encoding: next char - 29 = repeat count
             in_idx++;
             if (input[in_idx] == '\0') {
+                TRACE_ERROR("Invalid RLE encoding: unexpected end of input\n");
                 return -1; // Invalid RLE
             }
             int repeat_count = (unsigned char)input[in_idx] - 29;
             if (repeat_count <= 0 || out_idx == 0) {
+                TRACE_ERROR("Invalid RLE encoding: invalid repeat count\n");
                 return -1; // Invalid repeat count
             }
             
