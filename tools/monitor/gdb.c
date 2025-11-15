@@ -248,9 +248,8 @@ int gdb_continue(int socket)
         return -1;
     }
     
-    if (gdb_wait_for_ack(socket) < 0) {
-        return -1;
-    }
+    // Note: GDB protocol does NOT send an ACK after 'c' command
+    // The server will only respond when the target stops
     
     // The 'c' command causes gdbserver to run the target and wait for it to stop.
     // We need to let the program run for a bit, then interrupt it so we can
@@ -331,9 +330,9 @@ static int gdb_resume(int socket)
         return -1;
     }
     
-    if (gdb_wait_for_ack(socket) < 0) {
-        return -1;
-    }
+    // Note: GDB protocol does NOT send an ACK after 'c' command
+    // The server will only respond when the target stops (with a stop reply packet)
+    // We should NOT wait for an ACK here - it will block indefinitely
     
     target_is_running = true;
     TRACE_VERBOSE("Target resumed\n");

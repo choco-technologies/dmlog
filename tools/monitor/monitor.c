@@ -245,16 +245,19 @@ bool monitor_wait_for_new_data(monitor_ctx_t *ctx)
         usleep(10000);
         if(!monitor_update_ring(ctx))
         {
+            TRACE_ERROR("monitor_update_ring failed in wait_for_new_data\n");
             return false;
         }
         // Check if firmware requested input - return early to handle it
         // This prevents deadlock when firmware requests input without producing output
         if(ctx->ring.flags & DMLOG_FLAG_INPUT_REQUESTED)
         {
+            TRACE_VERBOSE("Input requested (flags=0x%08X), returning from wait\n", ctx->ring.flags);
             return true;
         }
         empty = is_buffer_empty(ctx);
     }
+    TRACE_VERBOSE("New data available, returning from wait\n");
     return true;
 }
 
