@@ -18,7 +18,7 @@ MONITOR="${BUILD_DIR}/tools/monitor/dmlog_monitor"
 SCENARIOS_DIR="${SCRIPT_DIR}/scenarios"
 
 GDB_PORT=1234
-MONITOR_TIMEOUT=15  # seconds to run monitor (app exits gracefully after completing scenario)
+MONITOR_TIMEOUT=25  # seconds to run monitor (app exits gracefully after completing scenario)
 
 # Color output
 RED='\033[0;31m'

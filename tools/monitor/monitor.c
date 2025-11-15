@@ -245,16 +245,19 @@ bool monitor_wait_for_new_data(monitor_ctx_t *ctx)
         usleep(10000);
         if(!monitor_update_ring(ctx))
         {
+            TRACE_ERROR("Failed to update ring buffer\n");
             return false;
         }
         // Check if firmware requested input - return early to handle it
         // This prevents deadlock when firmware requests input without producing output
         if(ctx->ring.flags & DMLOG_FLAG_INPUT_REQUESTED)
         {
+            TRACE_INFO("Input requested by firmware (flags=0x%08X)\n", ctx->ring.flags);
             return true;
         }
         empty = is_buffer_empty(ctx);
     }
+    TRACE_VERBOSE("New data available (flags=0x%08X)\n", ctx->ring.flags);
     return true;
 }
 
@@ -408,6 +411,14 @@ void monitor_run(monitor_ctx_t *ctx, bool show_timestamps, bool blocking_mode)
         const char* entry_data = monitor_get_entry_buffer(ctx);
         while(monitor_wait_for_new_data(ctx) )
         {
+            // Check for input request from firmware first (highest priority)
+            // This must be done before the sleep to minimize latency
+            if(monitor_handle_input_request(ctx))
+            {
+                // Input was handled, continue immediately to check for more data/requests
+                continue;
+            }
+            
             usleep(100000); // Sleep briefly to allow data to accumulate
             while(!is_buffer_empty(ctx))
             {
@@ -443,9 +454,6 @@ void monitor_run(monitor_ctx_t *ctx, bool show_timestamps, bool blocking_mode)
                 }
                 fflush(stdout);  // Ensure output is written immediately
             }
-            
-            // Check for input request from firmware (after printing all output)
-            monitor_handle_input_request(ctx);
         }
     }
 }
@@ -702,6 +710,8 @@ bool monitor_handle_input_request(monitor_ctx_t *ctx)
         return false;
     }
 
+    TRACE_INFO("Handling input request from firmware\n");
+
     // Read input from file or stdin (no prompt, firmware should print its own prompt)
     char input_buffer[512];
     FILE* input_source = ctx->input_file ? ctx->input_file : stdin;
@@ -719,6 +729,8 @@ bool monitor_handle_input_request(monitor_ctx_t *ctx)
         return false;
     }
 
+    TRACE_INFO("Read input from file: %s", input_buffer);
+
     // Send input to firmware
     size_t input_len = strlen(input_buffer);
     if(!monitor_send_input(ctx, input_buffer, input_len))
@@ -726,6 +738,8 @@ bool monitor_handle_input_request(monitor_ctx_t *ctx)
         TRACE_ERROR("Failed to send input to firmware\n");
         return false;
     }
+
+    TRACE_INFO("Sent input to firmware (%zu bytes)\n", input_len);
 
     // Clear the INPUT_REQUESTED flag (write directly without waiting for not-busy)
     uint32_t new_flags = ctx->ring.flags & ~DMLOG_FLAG_INPUT_REQUESTED;
@@ -738,5 +752,6 @@ bool monitor_handle_input_request(monitor_ctx_t *ctx)
     // Update local cache
     ctx->ring.flags = new_flags;
 
+    TRACE_INFO("Input request handled successfully\n");
     return true;
 }
