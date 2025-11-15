@@ -468,7 +468,7 @@ int gdb_read_memory(int socket, uint32_t address, void *buffer, size_t length)
     
     // Parse hex data
     if ((size_t)decoded_len < length * 2) {
-        TRACE_ERROR("GDB response too short after decode: expected %zu hex chars, got %d. Response len: %d\n", length * 2, decoded_len, response_len);
+        TRACE_ERROR("GDB response too short after decode: expected %zu hex chars, got %d. Response len: %d Response: %s\n", length * 2, decoded_len, response_len, response);
         // Resume if we interrupted
         if (was_running) gdb_resume(socket);
         return -1;
