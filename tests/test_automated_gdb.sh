@@ -18,7 +18,7 @@ MONITOR="${BUILD_DIR}/tools/monitor/dmlog_monitor"
 SCENARIOS_DIR="${SCRIPT_DIR}/scenarios"
 
 GDB_PORT=1234
-MONITOR_TIMEOUT=180  # 3 minutes timeout (fallback - app should exit via "exit" command)
+MONITOR_TIMEOUT=30  # 1 minute timeout (fallback - app should exit via "exit" command)
 
 # Color output
 RED='\033[0;31m'
@@ -145,7 +145,7 @@ run_test() {
         echo "exit" >> "$input_data"
         
         # Run monitor with input file
-        timeout $MONITOR_TIMEOUT "$MONITOR" --gdb --port $GDB_PORT --addr $BUFFER_ADDR --input-file "$input_data" > "$test_output" 2>&1 &
+        timeout $MONITOR_TIMEOUT "$MONITOR" --gdb --port $GDB_PORT --addr $BUFFER_ADDR --time --input-file "$input_data" > "$test_output" 2>&1 &
     else
         # Run monitor without input for output-only tests
         timeout $MONITOR_TIMEOUT "$MONITOR" --gdb --port $GDB_PORT --addr $BUFFER_ADDR > "$test_output" 2>&1 &

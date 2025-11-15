@@ -411,7 +411,6 @@ void monitor_run(monitor_ctx_t *ctx, bool show_timestamps, bool blocking_mode)
         const char* entry_data = monitor_get_entry_buffer(ctx);
         while(monitor_wait_for_new_data(ctx) )
         {
-            usleep(100000); // Sleep briefly to allow data to accumulate
             while(!is_buffer_empty(ctx))
             {
                 if(!monitor_update_entry(ctx, blocking_mode))
@@ -449,6 +448,8 @@ void monitor_run(monitor_ctx_t *ctx, bool show_timestamps, bool blocking_mode)
             
             // Check for input request from firmware (after printing all output)
             monitor_handle_input_request(ctx);
+
+            usleep(100000); // Sleep briefly to allow data to accumulate
         }
     }
 }
