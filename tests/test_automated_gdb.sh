@@ -18,7 +18,7 @@ MONITOR="${BUILD_DIR}/tools/monitor/dmlog_monitor"
 SCENARIOS_DIR="${SCRIPT_DIR}/scenarios"
 
 GDB_PORT=1234
-MONITOR_TIMEOUT=10  # seconds to run monitor (app exits gracefully after completing scenario)
+MONITOR_TIMEOUT=15  # seconds to run monitor (app exits gracefully after completing scenario)
 
 # Color output
 RED='\033[0;31m'
@@ -142,12 +142,10 @@ run_test() {
         done > "$input_data"
         
         # Run monitor with input file
-        # Use stdbuf for line-buffered output to ensure logs are captured even if monitor crashes
-        timeout $MONITOR_TIMEOUT stdbuf -oL -eL "$MONITOR" --gdb --port $GDB_PORT --addr $BUFFER_ADDR --input-file "$input_data" > "$test_output" 2>&1 &
+        timeout $MONITOR_TIMEOUT "$MONITOR" --gdb --port $GDB_PORT --addr $BUFFER_ADDR --input-file "$input_data" > "$test_output" 2>&1 &
     else
         # Run monitor without input for output-only tests
-        # Use stdbuf for line-buffered output to ensure logs are captured even if monitor crashes
-        timeout $MONITOR_TIMEOUT stdbuf -oL -eL "$MONITOR" --gdb --port $GDB_PORT --addr $BUFFER_ADDR > "$test_output" 2>&1 &
+        timeout $MONITOR_TIMEOUT "$MONITOR" --gdb --port $GDB_PORT --addr $BUFFER_ADDR > "$test_output" 2>&1 &
     fi
     
     local MONITOR_PID=$!
@@ -230,16 +228,15 @@ if [ -f "$SCENARIOS_DIR/test_input_single.txt" ]; then
     run_test "$SCENARIOS_DIR/test_input_single.txt" 4096
 fi
 
-# Test 3: Multiple inputs - DISABLED due to timing issues with sequential inputs
-# TODO: Fix timing/synchronization for multiple sequential input requests
-# if [ -f "$SCENARIOS_DIR/test_input_multiple.txt" ]; then
-#     run_test "$SCENARIOS_DIR/test_input_multiple.txt" 4096
-# fi
+# Test 3: Multiple inputs
+if [ -f "$SCENARIOS_DIR/test_input_multiple.txt" ]; then
+    run_test "$SCENARIOS_DIR/test_input_multiple.txt" 4096
+fi
 
-# Test 4: Complex mixed - DISABLED (depends on Test 3 fix)
-# if [ -f "$SCENARIOS_DIR/test_mixed_complex.txt" ]; then
-#     run_test "$SCENARIOS_DIR/test_mixed_complex.txt" 2048
-# fi
+# Test 4: Complex mixed
+if [ -f "$SCENARIOS_DIR/test_mixed_complex.txt" ]; then
+    run_test "$SCENARIOS_DIR/test_mixed_complex.txt" 2048
+fi
 
 # Print final summary
 echo ""

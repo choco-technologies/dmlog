@@ -231,6 +231,8 @@ bool monitor_wait_until_not_busy(monitor_ctx_t *ctx)
 /**
  * @brief Wait for new data to be available in the dmlog ring buffer
  * 
+ * Also returns early if firmware requests input, to avoid deadlock.
+ * 
  * @param ctx Pointer to the monitor context
  * @return true on success, false on failure
  */
@@ -244,6 +246,12 @@ bool monitor_wait_for_new_data(monitor_ctx_t *ctx)
         if(!monitor_update_ring(ctx))
         {
             return false;
+        }
+        // Check if firmware requested input - return early to handle it
+        // This prevents deadlock when firmware requests input without producing output
+        if(ctx->ring.flags & DMLOG_FLAG_INPUT_REQUESTED)
+        {
+            return true;
         }
         empty = is_buffer_empty(ctx);
     }
@@ -384,6 +392,7 @@ void monitor_run(monitor_ctx_t *ctx, bool show_timestamps, bool blocking_mode)
                 {
                     printf("%s", entry_data);
                 }
+                fflush(stdout);  // Ensure output is written immediately
             }
             
             // Check for input request from firmware (after printing all output)
@@ -432,6 +441,7 @@ void monitor_run(monitor_ctx_t *ctx, bool show_timestamps, bool blocking_mode)
                 {
                     printf("%s", entry_data);
                 }
+                fflush(stdout);  // Ensure output is written immediately
             }
             
             // Check for input request from firmware (after printing all output)

@@ -134,7 +134,7 @@ int main(int argc, char *argv[]) {
             dmlog_input_request(g_dmlog_ctx);
             
             // Wait for input to become available (with timeout)
-            int timeout = 100; // 10 seconds
+            int timeout = 150; // 15 seconds
             while (!dmlog_input_available(g_dmlog_ctx) && timeout > 0 && keep_running) {
                 usleep(100000); // 100ms
                 timeout--;
