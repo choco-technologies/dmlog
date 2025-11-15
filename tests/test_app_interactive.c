@@ -92,14 +92,6 @@ int main(int argc, char *argv[]) {
     }
 
     printf("dmlog context created at: %p\n", (void*)g_log_buffer);
-    
-    // Write buffer address to file for test script to read
-    // This avoids issues with ASLR and address randomization in containers
-    FILE *addr_file = fopen("/tmp/dmlog_buffer_addr.txt", "w");
-    if (addr_file) {
-        fprintf(addr_file, "%p\n", (void*)g_log_buffer);
-        fclose(addr_file);
-    }
 
     // Open input file
     FILE *f = fopen(input_file, "r");
@@ -180,9 +172,9 @@ int main(int argc, char *argv[]) {
     printf("Test scenario completed. Flushing final logs...\n");
     dmlog_flush(g_dmlog_ctx);
     
-    // Give monitor a moment to read final logs before exiting
-    // This is much shorter than the old 30-second wait
-    sleep(2);
+    // Give monitor time to read final logs and process any pending inputs
+    // For tests with multiple inputs, we need a bit more time
+    sleep(3);
 
     printf("Exiting gracefully...\n");
     dmlog_destroy(g_dmlog_ctx);
