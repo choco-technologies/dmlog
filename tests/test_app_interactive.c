@@ -134,7 +134,8 @@ int main(int argc, char *argv[]) {
             dmlog_input_request(g_dmlog_ctx);
             
             // Wait for input to become available (with timeout)
-            int timeout = 250; // 25 seconds (GDB protocol has significant overhead)
+            // Long timeout (3 minutes) as fallback - app should exit via "exit" command
+            int timeout = 1800; // 3 minutes
             while (!dmlog_input_available(g_dmlog_ctx) && timeout > 0 && keep_running) {
                 usleep(100000); // 100ms
                 timeout--;
@@ -152,6 +153,13 @@ int main(int argc, char *argv[]) {
                     // Echo the input to dmlog output
                     dmlog_puts(g_dmlog_ctx, "Received: ");
                     dmlog_puts(g_dmlog_ctx, input_buffer);
+                    
+                    // Check for exit command
+                    if (strncmp(input_buffer, "exit", 4) == 0) {
+                        printf("[Line %d] Exit command received, stopping...\n", line_num);
+                        keep_running = false;
+                        break;
+                    }
                 } else {
                     printf("[Line %d] Warning: Failed to read input\n", line_num);
                     dmlog_puts(g_dmlog_ctx, "ERROR: Failed to read input\n");

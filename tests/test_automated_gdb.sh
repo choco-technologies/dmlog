@@ -18,7 +18,7 @@ MONITOR="${BUILD_DIR}/tools/monitor/dmlog_monitor"
 SCENARIOS_DIR="${SCRIPT_DIR}/scenarios"
 
 GDB_PORT=1234
-MONITOR_TIMEOUT=25  # seconds to run monitor (app exits gracefully after completing scenario)
+MONITOR_TIMEOUT=180  # 3 minutes timeout (fallback - app should exit via "exit" command)
 
 # Color output
 RED='\033[0;31m'
@@ -140,6 +140,9 @@ run_test() {
         for i in $(seq 1 $input_count); do
             echo "Test input line $i"
         done > "$input_data"
+        
+        # Add "exit" command as the last input to terminate the app gracefully
+        echo "exit" >> "$input_data"
         
         # Run monitor with input file
         timeout $MONITOR_TIMEOUT "$MONITOR" --gdb --port $GDB_PORT --addr $BUFFER_ADDR --input-file "$input_data" > "$test_output" 2>&1 &
