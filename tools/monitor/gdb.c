@@ -79,11 +79,19 @@ static int gdb_receive_packet(int socket, char *buffer, size_t buffer_size)
     ssize_t n;
     
     // Wait for start of packet '$'
+    // Skip any ACK ('+') or NAK ('-') characters that may be sent by the server
+    // Some GDB servers (like Renode) send ACK even after commands that don't expect it
     do {
         n = recv(socket, &c, 1, 0);
         if (n <= 0) {
             TRACE_ERROR("Failed to receive GDB packet start\n");
             return -1;
+        }
+        // Skip ACK/NAK characters - they are handled separately where needed
+        // This makes us compatible with servers that send unexpected ACKs
+        if (c == '+' || c == '-') {
+            TRACE_VERBOSE("Skipping %c character before packet\n", c);
+            continue;
         }
     } while (c != '$');
     
