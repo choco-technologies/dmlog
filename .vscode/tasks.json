@@ -4,10 +4,11 @@
         {
             "label": "build dmlog_monitor",
             "type": "shell",
-            "command": "make",
+            "command": "cmake",
             "args": [
-                "-C",
+                "--build",
                 "${workspaceFolder}/build",
+                "--target",
                 "dmlog_monitor"
             ],
             "group": {
@@ -28,16 +29,12 @@
         {
             "label": "clean and build dmlog_monitor",
             "type": "shell",
-            "command": "make",
+            "command": "cmake",
             "args": [
-                "-C",
+                "--build",
                 "${workspaceFolder}/build",
-                "clean",
-                "&&",
-                "make",
-                "-C",
-                "${workspaceFolder}/build",
-                "dmlog_monitor"
+                "--target",
+                "clean"
             ],
             "group": "build",
             "presentation": {
@@ -47,7 +44,28 @@
                 "panel": "shared"
             },
             "problemMatcher": ["$gcc"],
-            "detail": "Czyszczenie i pełne przebudowanie dmlog_monitor"
+            "detail": "Czyszczenie i pełne przebudowanie dmlog_monitor",
+            "dependsOrder": "sequence",
+            "dependsOn": "build dmlog_monitor after clean"
+        },
+        {
+            "label": "build dmlog_monitor after clean",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--build",
+                "${workspaceFolder}/build",
+                "--target",
+                "dmlog_monitor"
+            ],
+            "group": "build",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            },
+            "problemMatcher": ["$gcc"]
         },
         {
             "label": "configure cmake with debug",
@@ -55,6 +73,7 @@
             "command": "cmake",
             "args": [
                 "-DCMAKE_BUILD_TYPE=Debug",
+                "-DDMLOG_BUILD_TOOLS=ON",
                 "-S",
                 "${workspaceFolder}",
                 "-B",
