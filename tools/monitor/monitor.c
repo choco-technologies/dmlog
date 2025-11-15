@@ -447,7 +447,10 @@ void monitor_run(monitor_ctx_t *ctx, bool show_timestamps, bool blocking_mode)
             }
             
             // Check for input request from firmware (after printing all output)
-            monitor_handle_input_request(ctx);
+            if(!monitor_handle_input_request(ctx))
+            {
+                return; // exit on EOF
+            }
 
             usleep(100000); // Sleep briefly to allow data to accumulate
         }
@@ -742,5 +745,5 @@ bool monitor_handle_input_request(monitor_ctx_t *ctx)
     // Update local cache
     ctx->ring.flags = new_flags;
 
-    return true;
+    return feof(input_source) == 0;
 }
