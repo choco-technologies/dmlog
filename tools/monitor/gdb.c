@@ -194,6 +194,17 @@ int gdb_connect(const backend_addr_t *addr)
             // and would complicate the implementation. ACK mode is reliable enough.
             
             TRACE_INFO("Connected to GDB server at %s:%d\n", addr->host, addr->port);
+            
+            // Send continue command to start/resume the target
+            // When gdbserver starts a process, it stops at entry point
+            // We need to continue it so the program can run and initialize
+            // gdb_continue() will run the target then interrupt it after a delay
+            if (gdb_continue(sock) < 0) {
+                TRACE_ERROR("Failed to continue target execution\n");
+                close(sock);
+                return -1;
+            }
+            
             return sock;
         }
 
