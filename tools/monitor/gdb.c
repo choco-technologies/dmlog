@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/select.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
@@ -160,6 +161,85 @@ static int gdb_wait_for_ack(int socket)
 }
 
 /**
+ * @brief Check if a packet is a stop reply (S or T packet)
+ * 
+ * Stop replies indicate that the target has stopped execution.
+ * Format: "S<signal>" or "T<signal>..." where signal is a 2-digit hex number
+ * Examples: "S02", "S05", "T05", etc.
+ * 
+ * @param packet Packet data
+ * @return bool True if packet is a stop reply
+ */
+static bool is_stop_reply(const char *packet)
+{
+    if (packet == NULL || packet[0] == '\0') {
+        return false;
+    }
+    
+    // Check for S or T packet (stop replies)
+    if (packet[0] == 'S' || packet[0] == 'T') {
+        // Must have at least 2 more characters (signal number)
+        if (strlen(packet) >= 3 && isxdigit(packet[1]) && isxdigit(packet[2])) {
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+/**
+ * @brief Drain any pending packets from socket with timeout
+ * 
+ * This function reads and discards any pending data on the socket
+ * to clear out unexpected packets (like unsolicited stop replies).
+ * Uses non-blocking I/O with a short timeout to avoid hanging.
+ * 
+ * @param socket Socket file descriptor
+ * @return int Number of packets drained, or -1 on error
+ */
+static int gdb_drain_pending_packets(int socket)
+{
+    int count = 0;
+    struct timeval tv;
+    fd_set readfds;
+    
+    // Try to read pending packets for up to 100ms
+    for (int attempt = 0; attempt < 5; attempt++) {
+        FD_ZERO(&readfds);
+        FD_SET(socket, &readfds);
+        
+        tv.tv_sec = 0;
+        tv.tv_usec = 20000; // 20ms timeout
+        
+        int ret = select(socket + 1, &readfds, NULL, NULL, &tv);
+        if (ret < 0) {
+            TRACE_ERROR("select() failed while draining packets\n");
+            return -1;
+        } else if (ret == 0) {
+            // No more data available
+            break;
+        }
+        
+        // Data available, try to read it
+        char buffer[256];
+        int len = gdb_receive_packet(socket, buffer, sizeof(buffer));
+        if (len < 0) {
+            // Error or no complete packet, stop draining
+            break;
+        }
+        
+        TRACE_VERBOSE("Drained pending packet: %s\n", buffer);
+        count++;
+    }
+    
+    if (count > 0) {
+        TRACE_INFO("Drained %d pending packet(s)\n", count);
+    }
+    
+    return count;
+}
+
+/**
  * @brief Connect to GDB server
  * 
  * @param addr Pointer to gdb_addr_t structure with host and port
@@ -194,6 +274,10 @@ int gdb_connect(const backend_addr_t *addr)
             // and would complicate the implementation. ACK mode is reliable enough.
             
             TRACE_INFO("Connected to GDB server at %s:%d\n", addr->host, addr->port);
+            
+            // Drain any pending packets (like unsolicited stop replies)
+            // This handles cases where GDB sends S02 (SIGINT) at connection time
+            gdb_drain_pending_packets(sock);
             
             // Send continue command to start/resume the target
             // When gdbserver starts a process, it stops at entry point
@@ -446,6 +530,33 @@ int gdb_read_memory(int socket, uint32_t address, void *buffer, size_t length)
         // Resume if we interrupted
         if (was_running) gdb_resume(socket);
         return -1;
+    }
+    
+    // Check if we received a stop reply instead of memory data
+    // This can happen if the target sends an asynchronous stop signal (like S02 for SIGINT)
+    if (is_stop_reply(response)) {
+        TRACE_WARN("Received stop reply '%s' instead of memory data, retrying...\n", response);
+        
+        // Drain any other pending packets
+        gdb_drain_pending_packets(socket);
+        
+        // Retry the memory read command
+        if (gdb_send_packet(socket, command) < 0) {
+            if (was_running) gdb_resume(socket);
+            return -1;
+        }
+        
+        if (gdb_wait_for_ack(socket) < 0) {
+            if (was_running) gdb_resume(socket);
+            return -1;
+        }
+        
+        // Receive the actual response
+        response_len = gdb_receive_packet(socket, response, sizeof(response));
+        if (response_len < 0) {
+            if (was_running) gdb_resume(socket);
+            return -1;
+        }
     }
     
     // Check for error response
