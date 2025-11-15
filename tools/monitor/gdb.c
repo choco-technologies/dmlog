@@ -106,7 +106,7 @@ static int gdb_receive_packet(int socket, char *buffer, size_t buffer_size)
     
     // Read checksum (2 hex digits)
     char checksum_str[3];
-    n = recv(socket, checksum_str, 2, 0);
+    n = recv(socket, checksum_str, 2, MSG_WAITALL);
     if (n != 2) {
         TRACE_ERROR("Failed to receive GDB packet checksum\n");
         return -1;
