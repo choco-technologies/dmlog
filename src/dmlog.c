@@ -811,14 +811,16 @@ bool dmlog_input_gets(dmlog_ctx_t ctx, char *s, size_t max_len)
  * This function sets a flag that the monitor can detect to prompt the user for input.
  * 
  * @param ctx DMLoG context.
+ * @param flags Input request flags (e.g., echo off, line mode).
  */
-void dmlog_input_request(dmlog_ctx_t ctx)
+void dmlog_input_request(dmlog_ctx_t ctx, dmlog_input_request_flags_t flags)
 {
     Dmod_EnterCritical();
     if(dmlog_is_valid(ctx))
     {
         context_lock(ctx);
-        ctx->ring.flags |= DMLOG_FLAG_INPUT_REQUESTED;
+        ctx->ring.flags &= ~DMLOG_INPUT_REQUEST_MASK;
+        ctx->ring.flags |= DMLOG_FLAG_INPUT_REQUESTED | (flags & DMLOG_INPUT_REQUEST_MASK);
         context_unlock(ctx);
     }
     Dmod_ExitCritical();

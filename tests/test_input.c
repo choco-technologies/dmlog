@@ -324,7 +324,7 @@ static void test_input_request(void) {
     ASSERT_TEST((ring->flags & DMLOG_FLAG_INPUT_REQUESTED) == 0, "INPUT_REQUESTED flag initially not set");
     
     // Request input from firmware
-    dmlog_input_request(ctx);
+    dmlog_input_request(ctx, DMLOG_INPUT_REQUEST_FLAG_LINE_MODE);
     
     // Check that INPUT_REQUESTED flag is now set
     ASSERT_TEST((ring->flags & DMLOG_FLAG_INPUT_REQUESTED) != 0, "INPUT_REQUESTED flag is set after request");

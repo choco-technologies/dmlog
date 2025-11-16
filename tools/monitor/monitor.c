@@ -6,6 +6,44 @@
 #include "monitor.h"
 #include "trace.h"
 #include "gdb.h"
+#include <termios.h>
+#include <fcntl.h>
+
+/**
+ * @brief Configure terminal input mode (echo and line mode)
+ * 
+ * @param echo true to enable echo, false to disable
+ * @param line_mode true to enable line mode, false to disable
+ */
+static void configure_input_mode(bool echo, bool line_mode)
+{
+    struct termios tty;
+    tcgetattr(STDIN_FILENO, &tty);
+    if(echo)
+    {
+        tty.c_lflag |= ECHO;
+    }
+    else
+    {
+        tty.c_lflag &= ~ECHO;
+    }
+
+    if(line_mode)
+    {
+        tty.c_lflag |= ICANON;
+    }
+    else
+    {
+        tty.c_lflag &= ~ICANON;
+
+        tty.c_cc[VMIN] = 1;  // Minimum number of characters to read
+        tty.c_cc[VTIME] = 0; // No timeout
+
+        int flags = fcntl(STDIN_FILENO, F_GETFL, 0);
+        fcntl(STDIN_FILENO, F_SETFL, flags | O_NONBLOCK);
+    }
+    tcsetattr(STDIN_FILENO, TCSANOW, &tty);
+}
 
 /**
  * @brief Get the amount of data left in the dmlog ring buffer
@@ -712,19 +750,19 @@ bool monitor_handle_input_request(monitor_ctx_t *ctx)
     // Read input from file or stdin (no prompt, firmware should print its own prompt)
     char input_buffer[512];
     FILE* input_source = ctx->input_file ? ctx->input_file : stdin;
+    bool echo_on = (ctx->ring.flags & DMLOG_FLAG_INPUT_ECHO_OFF) == 0;
+    bool line_mode = (ctx->ring.flags & DMLOG_FLAG_INPUT_LINE_MODE) != 0;
     
-    if(fgets(input_buffer, sizeof(input_buffer), input_source) == NULL)
+    configure_input_mode(echo_on, line_mode);
+    while(fgets(input_buffer, sizeof(input_buffer), input_source) == NULL)
     {
         if(ctx->input_file)
         {
             TRACE_ERROR("Failed to read input from input file (end of file or error)\n");
+            return false;
         }
-        else
-        {
-            TRACE_ERROR("Failed to read input from user\n");
-        }
-        return false;
     }
+    configure_input_mode(true, true); // Restore terminal settings
 
     // Send input to firmware
     size_t input_len = strlen(input_buffer);

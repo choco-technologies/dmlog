@@ -131,7 +131,7 @@ int main(int argc, char *argv[]) {
             printf("[Line %d] Requesting user input...\n", line_num);
             
             // Request input from dmlog
-            dmlog_input_request(g_dmlog_ctx);
+            dmlog_input_request(g_dmlog_ctx, DMLOG_INPUT_REQUEST_FLAG_LINE_MODE);
             
             // Wait for input to become available (with timeout)
             // Long timeout (3 minutes) as fallback - app should exit via "exit" command
