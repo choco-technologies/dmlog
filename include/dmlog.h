@@ -20,10 +20,24 @@
 #endif
 
 /* Flag bits for commands/status */
-#define DMLOG_FLAG_CLEAR_BUFFER  0x00000001  /* Set to clear buffer, cleared after execution */
-#define DMLOG_FLAG_BUSY          0x00000002  /* Buffer busy flag - set during write operations */
-#define DMLOG_FLAG_INPUT_AVAILABLE 0x00000004  /* Input data available flag */
-#define DMLOG_FLAG_INPUT_REQUESTED 0x00000008  /* Firmware requests input from user */
+#define DMLOG_FLAG_CLEAR_BUFFER     0x00000001  /* Set to clear buffer, cleared after execution */
+#define DMLOG_FLAG_BUSY             0x00000002  /* Buffer busy flag - set during write operations */
+#define DMLOG_FLAG_INPUT_AVAILABLE  0x00000004  /* Input data available flag */
+#define DMLOG_FLAG_INPUT_REQUESTED  0x00000008  /* Firmware requests input from user */
+#define DMLOG_FLAG_INPUT_ECHO_OFF   0x00000010  /* Disable echoing of input characters */
+#define DMLOG_FLAG_INPUT_LINE_MODE  0x00000020  /* Input line mode (vs. character mode) */
+
+/**
+ * @brief Input request flags
+ * Used when requesting input from the user via dmlog_input_request().
+ */
+typedef enum 
+{
+    DMLOG_INPUT_REQUEST_FLAG_ECHO_OFF    = DMLOG_FLAG_INPUT_ECHO_OFF,   //!< Disable echoing of input characters
+    DMLOG_INPUT_REQUEST_FLAG_LINE_MODE   = DMLOG_FLAG_INPUT_LINE_MODE,  //!< Use line mode (vs. character mode)
+    DMLOG_INPUT_REQUEST_FLAG_DEFAULT     = 0x0,
+    DMLOG_INPUT_REQUEST_MASK             = DMLOG_FLAG_INPUT_ECHO_OFF | DMLOG_FLAG_INPUT_LINE_MODE
+} dmlog_input_request_flags_t;
 
 /* Type definition for log entry indices */
 typedef uint32_t dmlog_index_t;
@@ -87,6 +101,6 @@ DMOD_BUILTIN_API(dmlog, 1.0, bool,             _input_available,   (dmlog_ctx_t 
 DMOD_BUILTIN_API(dmlog, 1.0, char,             _input_getc,        (dmlog_ctx_t ctx) );
 DMOD_BUILTIN_API(dmlog, 1.0, bool,             _input_gets,        (dmlog_ctx_t ctx, char* s, size_t max_len) );
 DMOD_BUILTIN_API(dmlog, 1.0, dmlog_index_t,    _input_get_free_space, (dmlog_ctx_t ctx) );
-DMOD_BUILTIN_API(dmlog, 1.0, void,             _input_request,     (dmlog_ctx_t ctx) );
+DMOD_BUILTIN_API(dmlog, 1.0, void,             _input_request,     (dmlog_ctx_t ctx, dmlog_input_request_flags_t flags) );
 
 #endif // DMLOG_H
