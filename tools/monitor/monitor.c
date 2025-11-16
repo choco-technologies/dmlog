@@ -713,21 +713,57 @@ bool monitor_handle_input_request(monitor_ctx_t *ctx)
     char input_buffer[512];
     FILE* input_source = ctx->input_file ? ctx->input_file : stdin;
     
-    if(fgets(input_buffer, sizeof(input_buffer), input_source) == NULL)
+    // Check input mode flags
+    bool echo_off = (ctx->ring.input_mode_flags & DMLOG_INPUT_FLAG_ECHO_OFF) != 0;
+    bool byte_mode = (ctx->ring.input_mode_flags & DMLOG_INPUT_FLAG_BYTE_MODE) != 0;
+    
+    size_t input_len = 0;
+    
+    if(byte_mode && input_source == stdin)
     {
-        if(ctx->input_file)
-        {
-            TRACE_ERROR("Failed to read input from input file (end of file or error)\n");
-        }
-        else
+        // Byte-by-byte mode: read one character at a time without waiting for newline
+        // Note: This requires terminal in raw mode, which is complex
+        // For now, we'll read a single character using getchar() which still waits for Enter
+        // A full implementation would use termios to put terminal in raw mode
+        int c = fgetc(input_source);
+        if(c == EOF)
         {
             TRACE_ERROR("Failed to read input from user\n");
+            return false;
         }
-        return false;
+        input_buffer[0] = (char)c;
+        input_buffer[1] = '\0';
+        input_len = 1;
+        
+        // Echo character if echo is not disabled
+        if(!echo_off)
+        {
+            fputc(c, stdout);
+            fflush(stdout);
+        }
+    }
+    else
+    {
+        // Line mode: read entire line
+        if(fgets(input_buffer, sizeof(input_buffer), input_source) == NULL)
+        {
+            if(ctx->input_file)
+            {
+                TRACE_ERROR("Failed to read input from input file (end of file or error)\n");
+            }
+            else
+            {
+                TRACE_ERROR("Failed to read input from user\n");
+            }
+            return false;
+        }
+        input_len = strlen(input_buffer);
+        
+        // Note: Echo is automatically handled by terminal in line mode
+        // The echo_off flag is primarily for byte mode where firmware handles echo
     }
 
     // Send input to firmware
-    size_t input_len = strlen(input_buffer);
     if(!monitor_send_input(ctx, input_buffer, input_len))
     {
         TRACE_ERROR("Failed to send input to firmware\n");

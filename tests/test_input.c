@@ -323,8 +323,8 @@ static void test_input_request(void) {
     // Initially INPUT_REQUESTED flag should not be set
     ASSERT_TEST((ring->flags & DMLOG_FLAG_INPUT_REQUESTED) == 0, "INPUT_REQUESTED flag initially not set");
     
-    // Request input from firmware
-    dmlog_input_request(ctx);
+    // Request input from firmware (default mode, no special flags)
+    dmlog_input_request(ctx, 0);
     
     // Check that INPUT_REQUESTED flag is now set
     ASSERT_TEST((ring->flags & DMLOG_FLAG_INPUT_REQUESTED) != 0, "INPUT_REQUESTED flag is set after request");
@@ -332,6 +332,61 @@ static void test_input_request(void) {
     // Clear the context - should clear the flag
     dmlog_clear(ctx);
     ASSERT_TEST((ring->flags & DMLOG_FLAG_INPUT_REQUESTED) == 0, "INPUT_REQUESTED flag cleared after dmlog_clear");
+}
+
+// Test: Input request with mode flags
+static void test_input_request_with_flags(void) {
+    TEST_SECTION("Input Request with Mode Flags");
+    
+    reset_buffer();
+    dmlog_ctx_t ctx = create_test_context();
+    ASSERT_TEST(ctx != NULL, "Create context");
+    
+    // Access the ring structure directly to check flags
+    typedef struct {
+        volatile uint32_t           magic;
+        volatile uint32_t           flags;
+        volatile uint32_t           head_offset;
+        volatile uint32_t           tail_offset;
+        volatile uint32_t           buffer_size;
+        volatile uint64_t           buffer;
+        volatile uint32_t           input_head_offset;
+        volatile uint32_t           input_tail_offset;
+        volatile uint32_t           input_buffer_size;
+        volatile uint64_t           input_buffer;
+        volatile uint32_t           input_mode_flags;
+    } __attribute__((packed)) test_ring_t;
+    
+    test_ring_t* ring = (test_ring_t*)ctx;
+    
+    // Test with ECHO_OFF flag
+    dmlog_input_request(ctx, DMLOG_INPUT_FLAG_ECHO_OFF);
+    ASSERT_TEST((ring->flags & DMLOG_FLAG_INPUT_REQUESTED) != 0, "INPUT_REQUESTED flag set with ECHO_OFF");
+    ASSERT_TEST((ring->input_mode_flags & DMLOG_INPUT_FLAG_ECHO_OFF) != 0, "ECHO_OFF flag stored correctly");
+    ASSERT_TEST((ring->input_mode_flags & DMLOG_INPUT_FLAG_BYTE_MODE) == 0, "BYTE_MODE flag not set");
+    
+    dmlog_clear(ctx);
+    
+    // Test with BYTE_MODE flag
+    dmlog_input_request(ctx, DMLOG_INPUT_FLAG_BYTE_MODE);
+    ASSERT_TEST((ring->flags & DMLOG_FLAG_INPUT_REQUESTED) != 0, "INPUT_REQUESTED flag set with BYTE_MODE");
+    ASSERT_TEST((ring->input_mode_flags & DMLOG_INPUT_FLAG_BYTE_MODE) != 0, "BYTE_MODE flag stored correctly");
+    ASSERT_TEST((ring->input_mode_flags & DMLOG_INPUT_FLAG_ECHO_OFF) == 0, "ECHO_OFF flag not set");
+    
+    dmlog_clear(ctx);
+    
+    // Test with both flags combined
+    dmlog_input_request(ctx, DMLOG_INPUT_FLAG_ECHO_OFF | DMLOG_INPUT_FLAG_BYTE_MODE);
+    ASSERT_TEST((ring->flags & DMLOG_FLAG_INPUT_REQUESTED) != 0, "INPUT_REQUESTED flag set with both flags");
+    ASSERT_TEST((ring->input_mode_flags & DMLOG_INPUT_FLAG_ECHO_OFF) != 0, "ECHO_OFF flag set in combination");
+    ASSERT_TEST((ring->input_mode_flags & DMLOG_INPUT_FLAG_BYTE_MODE) != 0, "BYTE_MODE flag set in combination");
+    
+    dmlog_clear(ctx);
+    
+    // Test with no flags (0)
+    dmlog_input_request(ctx, 0);
+    ASSERT_TEST((ring->flags & DMLOG_FLAG_INPUT_REQUESTED) != 0, "INPUT_REQUESTED flag set with no mode flags");
+    ASSERT_TEST(ring->input_mode_flags == 0, "No mode flags set when passing 0");
 }
 
 int main(void) {
@@ -346,6 +401,7 @@ int main(void) {
     test_input_clear();
     test_input_buffer_overflow();
     test_input_request();
+    test_input_request_with_flags();
     
     // Print summary
     printf("\n");

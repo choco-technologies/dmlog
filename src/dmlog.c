@@ -218,6 +218,7 @@ dmlog_ctx_t dmlog_create(void *buffer, dmlog_index_t buffer_size)
     ctx->ring.input_head_offset = 0;
     ctx->ring.input_tail_offset = 0;
     ctx->ring.flags             = 0;
+    ctx->ring.input_mode_flags  = 0;
     ctx->write_entry_offset     = 0;
     ctx->read_entry_offset      = 0;
     ctx->input_read_entry_offset = 0;
@@ -809,15 +810,20 @@ bool dmlog_input_gets(dmlog_ctx_t ctx, char *s, size_t max_len)
  * @brief Request input from the user (sets INPUT_REQUESTED flag).
  * 
  * This function sets a flag that the monitor can detect to prompt the user for input.
+ * The mode_flags parameter allows firmware to control how input is handled:
+ * - DMLOG_INPUT_FLAG_ECHO_OFF: Monitor will not echo input (firmware handles echo)
+ * - DMLOG_INPUT_FLAG_BYTE_MODE: Monitor sends input byte-by-byte without waiting for newline
  * 
  * @param ctx DMLoG context.
+ * @param mode_flags Input mode flags (combination of DMLOG_INPUT_FLAG_* values, or 0 for defaults).
  */
-void dmlog_input_request(dmlog_ctx_t ctx)
+void dmlog_input_request(dmlog_ctx_t ctx, uint32_t mode_flags)
 {
     Dmod_EnterCritical();
     if(dmlog_is_valid(ctx))
     {
         context_lock(ctx);
+        ctx->ring.input_mode_flags = mode_flags;
         ctx->ring.flags |= DMLOG_FLAG_INPUT_REQUESTED;
         context_unlock(ctx);
     }

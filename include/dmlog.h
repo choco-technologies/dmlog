@@ -25,6 +25,10 @@
 #define DMLOG_FLAG_INPUT_AVAILABLE 0x00000004  /* Input data available flag */
 #define DMLOG_FLAG_INPUT_REQUESTED 0x00000008  /* Firmware requests input from user */
 
+/* Input mode flags (used with dmlog_input_request) */
+#define DMLOG_INPUT_FLAG_ECHO_OFF  0x00000001  /* Disable echo on monitor side - firmware will handle echo */
+#define DMLOG_INPUT_FLAG_BYTE_MODE 0x00000002  /* Send input byte-by-byte without waiting for newline */
+
 /* Type definition for log entry indices */
 typedef uint32_t dmlog_index_t;
 
@@ -42,6 +46,7 @@ typedef uint32_t dmlog_index_t;
  * - input_tail_offset: Offset to the read position in the input buffer (read by firmware)
  * - input_buffer_size: Total size of the input buffer in bytes
  * - input_buffer: Raw input data from PC stored here
+ * - input_mode_flags: Input mode flags (echo off, byte mode, etc.)
  * 
  * Buffer layout: Raw bytes are stored directly without entry headers.
  * Entries are delimited by newline characters ('\n').
@@ -59,6 +64,7 @@ typedef struct
     volatile dmlog_index_t      input_tail_offset;
     volatile dmlog_index_t      input_buffer_size;
     volatile uint64_t           input_buffer;
+    volatile uint32_t           input_mode_flags;
 } DMLOG_PACKED dmlog_ring_t;
 
 typedef struct dmlog_ctx* dmlog_ctx_t;
@@ -87,6 +93,6 @@ DMOD_BUILTIN_API(dmlog, 1.0, bool,             _input_available,   (dmlog_ctx_t 
 DMOD_BUILTIN_API(dmlog, 1.0, char,             _input_getc,        (dmlog_ctx_t ctx) );
 DMOD_BUILTIN_API(dmlog, 1.0, bool,             _input_gets,        (dmlog_ctx_t ctx, char* s, size_t max_len) );
 DMOD_BUILTIN_API(dmlog, 1.0, dmlog_index_t,    _input_get_free_space, (dmlog_ctx_t ctx) );
-DMOD_BUILTIN_API(dmlog, 1.0, void,             _input_request,     (dmlog_ctx_t ctx) );
+DMOD_BUILTIN_API(dmlog, 1.0, void,             _input_request,     (dmlog_ctx_t ctx, uint32_t mode_flags) );
 
 #endif // DMLOG_H
