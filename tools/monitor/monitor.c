@@ -7,17 +7,19 @@
 #include "trace.h"
 #include "gdb.h"
 #include <termios.h>
+#include <fcntl.h>
 
 /**
- * @brief Enable or disable terminal echo
+ * @brief Configure terminal input mode (echo and line mode)
  * 
- * @param enabled true to enable echo, false to disable
+ * @param echo true to enable echo, false to disable
+ * @param line_mode true to enable line mode, false to disable
  */
-static void set_echo(bool enabled)
+static void configure_input_mode(bool echo, bool line_mode)
 {
     struct termios tty;
     tcgetattr(STDIN_FILENO, &tty);
-    if(enabled)
+    if(echo)
     {
         tty.c_lflag |= ECHO;
     }
@@ -25,25 +27,20 @@ static void set_echo(bool enabled)
     {
         tty.c_lflag &= ~ECHO;
     }
-    tcsetattr(STDIN_FILENO, TCSANOW, &tty);
-}
 
-/**
- * @brief Enable or disable terminal line mode (canonical mode)
- * 
- * @param enabled true to enable line mode, false to disable
- */
-static void set_line_mode(bool enabled)
-{
-    struct termios tty;
-    tcgetattr(STDIN_FILENO, &tty);
-    if(enabled)
+    if(line_mode)
     {
         tty.c_lflag |= ICANON;
     }
     else
     {
         tty.c_lflag &= ~ICANON;
+
+        tty.c_cc[VMIN] = 1;  // Minimum number of characters to read
+        tty.c_cc[VTIME] = 0; // No timeout
+
+        int flags = fcntl(STDIN_FILENO, F_GETFL, 0);
+        fcntl(STDIN_FILENO, F_SETFL, flags | O_NONBLOCK);
     }
     tcsetattr(STDIN_FILENO, TCSANOW, &tty);
 }
@@ -756,22 +753,16 @@ bool monitor_handle_input_request(monitor_ctx_t *ctx)
     bool echo_on = (ctx->ring.flags & DMLOG_FLAG_INPUT_ECHO_OFF) == 0;
     bool line_mode = (ctx->ring.flags & DMLOG_FLAG_INPUT_LINE_MODE) != 0;
     
-    set_echo(echo_on);
-    set_line_mode(line_mode);
-    if(fgets(input_buffer, sizeof(input_buffer), input_source) == NULL)
+    configure_input_mode(echo_on, line_mode);
+    while(fgets(input_buffer, sizeof(input_buffer), input_source) == NULL)
     {
         if(ctx->input_file)
         {
             TRACE_ERROR("Failed to read input from input file (end of file or error)\n");
+            return false;
         }
-        else
-        {
-            TRACE_ERROR("Failed to read input from user\n");
-        }
-        return false;
     }
-    set_echo(true);
-    set_line_mode(true);
+    configure_input_mode(true, true); // Restore terminal settings
 
     // Send input to firmware
     size_t input_len = strlen(input_buffer);
