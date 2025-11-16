@@ -203,7 +203,8 @@ DMLoG supports bidirectional communication, allowing firmware to read data sent 
 ```c
 void interactive_console(dmlog_ctx_t ctx) {
     // Request input from user - monitor will detect this and prompt
-    dmlog_input_request(ctx);
+    // Pass 0 for default behavior (line mode with echo)
+    dmlog_input_request(ctx, 0);
     
     // Wait for input to become available
     while (!dmlog_input_available(ctx)) {
@@ -216,6 +217,43 @@ void interactive_console(dmlog_ctx_t ctx) {
         printf("Received command: %s", input_buffer);
         // Process the command
     }
+}
+
+void interactive_console_with_firmware_echo(dmlog_ctx_t ctx) {
+    // Request input with echo disabled - firmware will handle echo
+    // This allows firmware to implement command completion, special keys, etc.
+    dmlog_input_request(ctx, DMLOG_INPUT_FLAG_ECHO_OFF);
+    
+    // Wait for input to become available
+    while (!dmlog_input_available(ctx)) {
+        // Could do other work here or yield to other tasks
+    }
+    
+    // Read input character by character and echo it
+    char c;
+    while ((c = dmlog_input_getc(ctx)) != '\0') {
+        // Firmware handles echo
+        dmlog_putc(ctx, c);
+        
+        if (c == '\n') {
+            break;
+        }
+        // Could implement tab completion, history, etc. here
+    }
+}
+
+void byte_by_byte_input(dmlog_ctx_t ctx) {
+    // Request byte-by-byte input mode without echo
+    // Useful for implementing custom terminal emulation
+    dmlog_input_request(ctx, DMLOG_INPUT_FLAG_BYTE_MODE | DMLOG_INPUT_FLAG_ECHO_OFF);
+    
+    // Process each character as it arrives (without waiting for newline)
+    while (!dmlog_input_available(ctx)) {
+        // Wait for data
+    }
+    
+    char c = dmlog_input_getc(ctx);
+    // Process character immediately (e.g., handle special keys, implement echo)
 }
 
 void read_user_input(dmlog_ctx_t ctx) {
@@ -249,6 +287,11 @@ void check_input_space(dmlog_ctx_t ctx) {
     printf("Input buffer free space: %u bytes\n", free_space);
 }
 ```
+
+**Input Mode Flags**: The `dmlog_input_request()` function accepts mode flags to control input behavior:
+- `DMLOG_INPUT_FLAG_ECHO_OFF`: Disables echo on the monitor side, allowing firmware to handle echo and implement features like command completion
+- `DMLOG_INPUT_FLAG_BYTE_MODE`: Sends input byte-by-byte without waiting for newline, enabling character-by-character processing
+- Pass `0` for default behavior (line mode with echo enabled)
 
 **Note**: The input buffer size is configurable via CMake (`DMLOG_INPUT_BUFFER_SIZE`, default: 512 bytes). When firmware calls `dmlog_input_request()`, it sets a flag that the monitor detects, prompting the user for input which is then sent to the firmware.
 
@@ -318,7 +361,7 @@ void allocate_dynamic_buffer(void) {
 
 | Function | Description |
 |----------|-------------|
-| `void dmlog_input_request(dmlog_ctx_t ctx)` | Request input from user (sets flag for monitor) |
+| `void dmlog_input_request(dmlog_ctx_t ctx, uint32_t mode_flags)` | Request input from user (sets flag for monitor). Use mode_flags to control behavior: `DMLOG_INPUT_FLAG_ECHO_OFF`, `DMLOG_INPUT_FLAG_BYTE_MODE`, or 0 for defaults |
 | `bool dmlog_input_available(dmlog_ctx_t ctx)` | Check if input data is available |
 | `char dmlog_input_getc(dmlog_ctx_t ctx)` | Read next character from input buffer |
 | `bool dmlog_input_gets(dmlog_ctx_t ctx, char* s, size_t max_len)` | Read line from input buffer |
@@ -487,6 +530,9 @@ DMLoG uses a split circular buffer supporting bidirectional communication:
 |  - input_head_offset   |  Input write position (PC)
 |  - input_tail_offset   |  Input read position (firmware)
 |  - input_buffer_size   |  Input buffer capacity (configurable)
+|  - input_mode_flags    |  Input mode control flags:
+|                        |    • ECHO_OFF: Disable monitor echo
+|                        |    • BYTE_MODE: Send input byte-by-byte
 +------------------------+
 |                        |
 |   Output Ring Buffer   |  Firmware → PC
