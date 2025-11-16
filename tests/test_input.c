@@ -334,6 +334,206 @@ static void test_input_request(void) {
     ASSERT_TEST((ring->flags & DMLOG_FLAG_INPUT_REQUESTED) == 0, "INPUT_REQUESTED flag cleared after dmlog_clear");
 }
 
+// Test: ECHO_OFF flag functionality
+static void test_echo_off_flag(void) {
+    TEST_SECTION("ECHO_OFF Flag");
+    
+    reset_buffer();
+    dmlog_ctx_t ctx = create_test_context();
+    ASSERT_TEST(ctx != NULL, "Create context");
+    
+    // Access the ring structure directly to check flags
+    typedef struct {
+        volatile uint32_t           magic;
+        volatile uint32_t           flags;
+        volatile uint32_t           head_offset;
+        volatile uint32_t           tail_offset;
+        volatile uint32_t           buffer_size;
+        volatile uint64_t           buffer;
+        volatile uint32_t           input_head_offset;
+        volatile uint32_t           input_tail_offset;
+        volatile uint32_t           input_buffer_size;
+        volatile uint64_t           input_buffer;
+    } __attribute__((packed)) test_ring_t;
+    
+    test_ring_t* ring = (test_ring_t*)ctx;
+    
+    // Initially ECHO_OFF flag should not be set
+    ASSERT_TEST((ring->flags & DMLOG_FLAG_INPUT_ECHO_OFF) == 0, "ECHO_OFF flag initially not set");
+    
+    // Request input with ECHO_OFF flag
+    dmlog_input_request(ctx, DMLOG_INPUT_REQUEST_FLAG_ECHO_OFF);
+    
+    // Check that both INPUT_REQUESTED and ECHO_OFF flags are set
+    ASSERT_TEST((ring->flags & DMLOG_FLAG_INPUT_REQUESTED) != 0, "INPUT_REQUESTED flag is set");
+    ASSERT_TEST((ring->flags & DMLOG_FLAG_INPUT_ECHO_OFF) != 0, "ECHO_OFF flag is set after request");
+    
+    // Request input without ECHO_OFF flag (echo enabled)
+    dmlog_input_request(ctx, DMLOG_INPUT_REQUEST_FLAG_DEFAULT);
+    
+    // Check that ECHO_OFF flag is now cleared but INPUT_REQUESTED remains
+    ASSERT_TEST((ring->flags & DMLOG_FLAG_INPUT_REQUESTED) != 0, "INPUT_REQUESTED flag still set");
+    ASSERT_TEST((ring->flags & DMLOG_FLAG_INPUT_ECHO_OFF) == 0, "ECHO_OFF flag cleared when not requested");
+    
+    // Clear the context - should clear all flags
+    dmlog_clear(ctx);
+    ASSERT_TEST((ring->flags & DMLOG_FLAG_INPUT_REQUESTED) == 0, "INPUT_REQUESTED flag cleared after dmlog_clear");
+    ASSERT_TEST((ring->flags & DMLOG_FLAG_INPUT_ECHO_OFF) == 0, "ECHO_OFF flag cleared after dmlog_clear");
+}
+
+// Test: LINE_MODE flag functionality
+static void test_line_mode_flag(void) {
+    TEST_SECTION("LINE_MODE Flag");
+    
+    reset_buffer();
+    dmlog_ctx_t ctx = create_test_context();
+    ASSERT_TEST(ctx != NULL, "Create context");
+    
+    // Access the ring structure directly to check flags
+    typedef struct {
+        volatile uint32_t           magic;
+        volatile uint32_t           flags;
+        volatile uint32_t           head_offset;
+        volatile uint32_t           tail_offset;
+        volatile uint32_t           buffer_size;
+        volatile uint64_t           buffer;
+        volatile uint32_t           input_head_offset;
+        volatile uint32_t           input_tail_offset;
+        volatile uint32_t           input_buffer_size;
+        volatile uint64_t           input_buffer;
+    } __attribute__((packed)) test_ring_t;
+    
+    test_ring_t* ring = (test_ring_t*)ctx;
+    
+    // Initially LINE_MODE flag should not be set
+    ASSERT_TEST((ring->flags & DMLOG_FLAG_INPUT_LINE_MODE) == 0, "LINE_MODE flag initially not set");
+    
+    // Request input with LINE_MODE flag
+    dmlog_input_request(ctx, DMLOG_INPUT_REQUEST_FLAG_LINE_MODE);
+    
+    // Check that both INPUT_REQUESTED and LINE_MODE flags are set
+    ASSERT_TEST((ring->flags & DMLOG_FLAG_INPUT_REQUESTED) != 0, "INPUT_REQUESTED flag is set");
+    ASSERT_TEST((ring->flags & DMLOG_FLAG_INPUT_LINE_MODE) != 0, "LINE_MODE flag is set after request");
+    
+    // Request input without LINE_MODE flag (character mode)
+    dmlog_input_request(ctx, DMLOG_INPUT_REQUEST_FLAG_DEFAULT);
+    
+    // Check that LINE_MODE flag is now cleared but INPUT_REQUESTED remains
+    ASSERT_TEST((ring->flags & DMLOG_FLAG_INPUT_REQUESTED) != 0, "INPUT_REQUESTED flag still set");
+    ASSERT_TEST((ring->flags & DMLOG_FLAG_INPUT_LINE_MODE) == 0, "LINE_MODE flag cleared when not requested");
+    
+    // Clear the context - should clear all flags
+    dmlog_clear(ctx);
+    ASSERT_TEST((ring->flags & DMLOG_FLAG_INPUT_REQUESTED) == 0, "INPUT_REQUESTED flag cleared after dmlog_clear");
+    ASSERT_TEST((ring->flags & DMLOG_FLAG_INPUT_LINE_MODE) == 0, "LINE_MODE flag cleared after dmlog_clear");
+}
+
+// Test: Combined ECHO_OFF and LINE_MODE flags
+static void test_combined_flags(void) {
+    TEST_SECTION("Combined ECHO_OFF and LINE_MODE Flags");
+    
+    reset_buffer();
+    dmlog_ctx_t ctx = create_test_context();
+    ASSERT_TEST(ctx != NULL, "Create context");
+    
+    // Access the ring structure directly to check flags
+    typedef struct {
+        volatile uint32_t           magic;
+        volatile uint32_t           flags;
+        volatile uint32_t           head_offset;
+        volatile uint32_t           tail_offset;
+        volatile uint32_t           buffer_size;
+        volatile uint64_t           buffer;
+        volatile uint32_t           input_head_offset;
+        volatile uint32_t           input_tail_offset;
+        volatile uint32_t           input_buffer_size;
+        volatile uint64_t           input_buffer;
+    } __attribute__((packed)) test_ring_t;
+    
+    test_ring_t* ring = (test_ring_t*)ctx;
+    
+    // Request input with both ECHO_OFF and LINE_MODE flags
+    dmlog_input_request(ctx, DMLOG_INPUT_REQUEST_FLAG_ECHO_OFF | DMLOG_INPUT_REQUEST_FLAG_LINE_MODE);
+    
+    // Check that all three flags are set
+    ASSERT_TEST((ring->flags & DMLOG_FLAG_INPUT_REQUESTED) != 0, "INPUT_REQUESTED flag is set");
+    ASSERT_TEST((ring->flags & DMLOG_FLAG_INPUT_ECHO_OFF) != 0, "ECHO_OFF flag is set");
+    ASSERT_TEST((ring->flags & DMLOG_FLAG_INPUT_LINE_MODE) != 0, "LINE_MODE flag is set");
+    
+    // Request input with only ECHO_OFF (no LINE_MODE)
+    dmlog_input_request(ctx, DMLOG_INPUT_REQUEST_FLAG_ECHO_OFF);
+    
+    // Check that LINE_MODE is cleared but ECHO_OFF remains
+    ASSERT_TEST((ring->flags & DMLOG_FLAG_INPUT_REQUESTED) != 0, "INPUT_REQUESTED flag still set");
+    ASSERT_TEST((ring->flags & DMLOG_FLAG_INPUT_ECHO_OFF) != 0, "ECHO_OFF flag still set");
+    ASSERT_TEST((ring->flags & DMLOG_FLAG_INPUT_LINE_MODE) == 0, "LINE_MODE flag cleared");
+    
+    // Request input with only LINE_MODE (no ECHO_OFF)
+    dmlog_input_request(ctx, DMLOG_INPUT_REQUEST_FLAG_LINE_MODE);
+    
+    // Check that ECHO_OFF is cleared but LINE_MODE is set
+    ASSERT_TEST((ring->flags & DMLOG_FLAG_INPUT_REQUESTED) != 0, "INPUT_REQUESTED flag still set");
+    ASSERT_TEST((ring->flags & DMLOG_FLAG_INPUT_ECHO_OFF) == 0, "ECHO_OFF flag cleared");
+    ASSERT_TEST((ring->flags & DMLOG_FLAG_INPUT_LINE_MODE) != 0, "LINE_MODE flag set");
+    
+    // Request input with no flags (default)
+    dmlog_input_request(ctx, DMLOG_INPUT_REQUEST_FLAG_DEFAULT);
+    
+    // Check that only INPUT_REQUESTED is set
+    ASSERT_TEST((ring->flags & DMLOG_FLAG_INPUT_REQUESTED) != 0, "INPUT_REQUESTED flag still set");
+    ASSERT_TEST((ring->flags & DMLOG_FLAG_INPUT_ECHO_OFF) == 0, "ECHO_OFF flag cleared with default");
+    ASSERT_TEST((ring->flags & DMLOG_FLAG_INPUT_LINE_MODE) == 0, "LINE_MODE flag cleared with default");
+}
+
+// Test: Flag persistence with input operations
+static void test_flags_with_input_operations(void) {
+    TEST_SECTION("Flags Persistence with Input Operations");
+    
+    reset_buffer();
+    dmlog_ctx_t ctx = create_test_context();
+    ASSERT_TEST(ctx != NULL, "Create context");
+    
+    // Access the ring structure directly to check flags
+    typedef struct {
+        volatile uint32_t           magic;
+        volatile uint32_t           flags;
+        volatile uint32_t           head_offset;
+        volatile uint32_t           tail_offset;
+        volatile uint32_t           buffer_size;
+        volatile uint64_t           buffer;
+        volatile uint32_t           input_head_offset;
+        volatile uint32_t           input_tail_offset;
+        volatile uint32_t           input_buffer_size;
+        volatile uint64_t           input_buffer;
+    } __attribute__((packed)) test_ring_t;
+    
+    test_ring_t* ring = (test_ring_t*)ctx;
+    
+    // Request input with ECHO_OFF and LINE_MODE
+    dmlog_input_request(ctx, DMLOG_INPUT_REQUEST_FLAG_ECHO_OFF | DMLOG_INPUT_REQUEST_FLAG_LINE_MODE);
+    
+    // Verify flags are set
+    ASSERT_TEST((ring->flags & DMLOG_FLAG_INPUT_ECHO_OFF) != 0, "ECHO_OFF flag set before input");
+    ASSERT_TEST((ring->flags & DMLOG_FLAG_INPUT_LINE_MODE) != 0, "LINE_MODE flag set before input");
+    
+    // Write data to input buffer
+    const char* test_input = "Test input line\n";
+    ASSERT_TEST(write_to_input_buffer(ctx, test_input, strlen(test_input)) == true, 
+                "Write input to buffer");
+    
+    // Verify flags are still set after writing input
+    ASSERT_TEST((ring->flags & DMLOG_FLAG_INPUT_ECHO_OFF) != 0, "ECHO_OFF flag persists after write");
+    ASSERT_TEST((ring->flags & DMLOG_FLAG_INPUT_LINE_MODE) != 0, "LINE_MODE flag persists after write");
+    
+    // Read the input
+    char read_buf[256];
+    ASSERT_TEST(dmlog_input_gets(ctx, read_buf, sizeof(read_buf)) == true, "Read input");
+    
+    // Verify flags are still set after reading input
+    ASSERT_TEST((ring->flags & DMLOG_FLAG_INPUT_ECHO_OFF) != 0, "ECHO_OFF flag persists after read");
+    ASSERT_TEST((ring->flags & DMLOG_FLAG_INPUT_LINE_MODE) != 0, "LINE_MODE flag persists after read");
+}
+
 int main(void) {
     printf("Running dmlog input tests...\n\n");
     
@@ -346,6 +546,10 @@ int main(void) {
     test_input_clear();
     test_input_buffer_overflow();
     test_input_request();
+    test_echo_off_flag();
+    test_line_mode_flag();
+    test_combined_flags();
+    test_flags_with_input_operations();
     
     // Print summary
     printf("\n");

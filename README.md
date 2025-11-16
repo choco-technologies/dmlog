@@ -252,6 +252,137 @@ void check_input_space(dmlog_ctx_t ctx) {
 
 **Note**: The input buffer size is configurable via CMake (`DMLOG_INPUT_BUFFER_SIZE`, default: 512 bytes). When firmware calls `dmlog_input_request()`, it sets a flag that the monitor detects, prompting the user for input which is then sent to the firmware.
 
+#### Input Request Flags: ECHO_OFF and LINE_MODE
+
+DMLoG provides two important flags to control how the monitor tool handles user input:
+
+- **`DMLOG_INPUT_REQUEST_FLAG_ECHO_OFF`**: Disables echoing of input characters to the terminal. Useful for password input or sensitive data.
+- **`DMLOG_INPUT_REQUEST_FLAG_LINE_MODE`**: Enables line-buffered input mode where input is sent only after pressing Enter (canonical mode). Without this flag, the monitor operates in character mode where each character is sent immediately as typed.
+
+##### Basic Usage
+
+```c
+void request_password(dmlog_ctx_t ctx) {
+    // Request password input without echo (characters won't be displayed)
+    dmlog_input_request(ctx, DMLOG_INPUT_REQUEST_FLAG_ECHO_OFF | 
+                             DMLOG_INPUT_REQUEST_FLAG_LINE_MODE);
+    
+    // Wait for input
+    while (!dmlog_input_available(ctx)) {
+        // Wait...
+    }
+    
+    // Read the password
+    char password[256];
+    if (dmlog_input_gets(ctx, password, sizeof(password))) {
+        // Process password securely
+        // ...
+        // Clear password from memory after use
+        memset(password, 0, sizeof(password));
+    }
+}
+
+void request_single_key(dmlog_ctx_t ctx) {
+    // Request single character input in character mode (no echo)
+    dmlog_input_request(ctx, DMLOG_INPUT_REQUEST_FLAG_ECHO_OFF);
+    
+    // Wait for input
+    while (!dmlog_input_available(ctx)) {
+        // Wait...
+    }
+    
+    // Read single character
+    char c = dmlog_input_getc(ctx);
+    printf("You pressed: %c\n", c);
+}
+
+void request_visible_line(dmlog_ctx_t ctx) {
+    // Request line input with echo (default behavior)
+    dmlog_input_request(ctx, DMLOG_INPUT_REQUEST_FLAG_LINE_MODE);
+    
+    // Wait and read
+    while (!dmlog_input_available(ctx)) {
+        // Wait...
+    }
+    
+    char line[256];
+    dmlog_input_gets(ctx, line, sizeof(line));
+}
+
+void request_default_input(dmlog_ctx_t ctx) {
+    // Request input with default settings (echo enabled, line mode disabled)
+    dmlog_input_request(ctx, DMLOG_INPUT_REQUEST_FLAG_DEFAULT);
+    
+    // This is equivalent to:
+    // dmlog_input_request(ctx, 0);
+}
+```
+
+##### Flag Combinations
+
+The flags can be combined using bitwise OR to achieve different input behaviors:
+
+| Flags | Behavior | Use Case |
+|-------|----------|----------|
+| `DMLOG_INPUT_REQUEST_FLAG_DEFAULT` (0) | Echo ON, Character mode | Real-time character input with visual feedback |
+| `DMLOG_INPUT_REQUEST_FLAG_ECHO_OFF` | Echo OFF, Character mode | Single key press without displaying the character |
+| `DMLOG_INPUT_REQUEST_FLAG_LINE_MODE` | Echo ON, Line mode | Normal command-line input |
+| `DMLOG_INPUT_REQUEST_FLAG_ECHO_OFF \| DMLOG_INPUT_REQUEST_FLAG_LINE_MODE` | Echo OFF, Line mode | Password or sensitive data input |
+
+##### Technical Details
+
+1. **Terminal Configuration**: The monitor tool (`dmlog_monitor`) reads these flags from the dmlog ring buffer and configures the terminal accordingly using `termios`:
+   - Echo control: `ECHO` flag in `c_lflag`
+   - Line mode: `ICANON` flag in `c_lflag`
+
+2. **Flag Persistence**: The flags remain set in the ring buffer until:
+   - A new `dmlog_input_request()` call is made with different flags
+   - `dmlog_clear()` is called, which clears all flags
+
+3. **Monitor Behavior**: When the monitor detects `DMLOG_FLAG_INPUT_REQUESTED`, it:
+   - Configures the terminal according to ECHO_OFF and LINE_MODE flags
+   - Reads input from stdin
+   - Sends the input to the firmware via the input buffer
+   - Restores terminal settings to normal (echo on, line mode on)
+
+##### Example: Interactive Menu
+
+```c
+void show_menu(dmlog_ctx_t ctx) {
+    dmlog_puts(ctx, "\nMain Menu:\n");
+    dmlog_puts(ctx, "1. Option A\n");
+    dmlog_puts(ctx, "2. Option B\n");
+    dmlog_puts(ctx, "3. Exit\n");
+    dmlog_puts(ctx, "Select (1-3): ");
+    
+    // Request single character without echo in character mode
+    dmlog_input_request(ctx, DMLOG_INPUT_REQUEST_FLAG_ECHO_OFF);
+    
+    while (!dmlog_input_available(ctx)) {
+        // Wait for user input
+    }
+    
+    char choice = dmlog_input_getc(ctx);
+    dmlog_putc(ctx, choice);  // Echo the choice ourselves
+    dmlog_putc(ctx, '\n');
+    
+    switch (choice) {
+        case '1':
+            dmlog_puts(ctx, "You selected Option A\n");
+            break;
+        case '2':
+            dmlog_puts(ctx, "You selected Option B\n");
+            break;
+        case '3':
+            dmlog_puts(ctx, "Exiting...\n");
+            break;
+        default:
+            dmlog_puts(ctx, "Invalid choice\n");
+            break;
+    }
+}
+```
+
 ### Calculating Required Buffer Size
 
 ```c
@@ -318,11 +449,21 @@ void allocate_dynamic_buffer(void) {
 
 | Function | Description |
 |----------|-------------|
-| `void dmlog_input_request(dmlog_ctx_t ctx)` | Request input from user (sets flag for monitor) |
+| `void dmlog_input_request(dmlog_ctx_t ctx, dmlog_input_request_flags_t flags)` | Request input from user with specified flags (ECHO_OFF, LINE_MODE). Monitor detects this and prompts for input. |
 | `bool dmlog_input_available(dmlog_ctx_t ctx)` | Check if input data is available |
 | `char dmlog_input_getc(dmlog_ctx_t ctx)` | Read next character from input buffer |
 | `bool dmlog_input_gets(dmlog_ctx_t ctx, char* s, size_t max_len)` | Read line from input buffer |
 | `dmlog_index_t dmlog_input_get_free_space(dmlog_ctx_t ctx)` | Get available space in input buffer |
+
+#### Input Request Flags
+
+| Flag | Value | Description |
+|------|-------|-------------|
+| `DMLOG_INPUT_REQUEST_FLAG_DEFAULT` | 0x0 | Default mode: echo enabled, character mode |
+| `DMLOG_INPUT_REQUEST_FLAG_ECHO_OFF` | 0x10 | Disable echoing of input characters (useful for passwords) |
+| `DMLOG_INPUT_REQUEST_FLAG_LINE_MODE` | 0x20 | Enable line-buffered input mode (input sent after Enter) |
+
+Flags can be combined using bitwise OR: `DMLOG_INPUT_REQUEST_FLAG_ECHO_OFF | DMLOG_INPUT_REQUEST_FLAG_LINE_MODE`
 
 ## 🔨 Building
 
