@@ -10,7 +10,7 @@ jobs:
   build-and-test:
     runs-on: ubuntu-latest
     container:
-      image: chocotechnologies/dmod:1.0.2
+      image: chocotechnologies/dmod:1.0.4
     
     steps:
     - name: Checkout code
@@ -69,7 +69,7 @@ jobs:
   coverage:
     runs-on: ubuntu-latest
     container:
-      image: chocotechnologies/dmod:1.0.2
+      image: chocotechnologies/dmod:1.0.4
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
