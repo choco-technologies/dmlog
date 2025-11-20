@@ -22,6 +22,7 @@ target_include_directories(test_dmlog_unit
     PRIVATE
         ${CMAKE_SOURCE_DIR}/include
 )
+target_link_options(test_dmlog_unit PRIVATE -L ${DMOD_SCRIPTS_DIR} -T ${DMOD_SCRIPTS_DIR}/main.ld)
 
 # =====================================================================
 #               Test: Simple Test
@@ -39,6 +40,7 @@ target_include_directories(test_simple
     PRIVATE
         ${CMAKE_SOURCE_DIR}/include
 )
+target_link_options(test_simple PRIVATE -L ${DMOD_SCRIPTS_DIR} -T ${DMOD_SCRIPTS_DIR}/main.ld)
 
 # =====================================================================
 #               Test: Benchmark Test
@@ -56,6 +58,7 @@ target_include_directories(test_benchmark
     PRIVATE
         ${CMAKE_SOURCE_DIR}/include
 )
+target_link_options(test_benchmark PRIVATE -L ${DMOD_SCRIPTS_DIR} -T ${DMOD_SCRIPTS_DIR}/main.ld)
 
 # =====================================================================
 #               Test: Input Test
@@ -73,6 +76,7 @@ target_include_directories(test_input
     PRIVATE
         ${CMAKE_SOURCE_DIR}/include
 )
+target_link_options(test_input PRIVATE -L ${DMOD_SCRIPTS_DIR} -T ${DMOD_SCRIPTS_DIR}/main.ld)
 
 # =====================================================================
 #               Test: Interactive Test Application
@@ -90,6 +94,7 @@ target_include_directories(test_app_interactive
     PRIVATE
         ${CMAKE_SOURCE_DIR}/include
 )
+target_link_options(test_app_interactive PRIVATE -L ${DMOD_SCRIPTS_DIR} -T ${DMOD_SCRIPTS_DIR}/main.ld)
 # Disable PIE for test_app_interactive to get predictable addresses for gdbserver testing
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(test_app_interactive PRIVATE -fno-pie)
