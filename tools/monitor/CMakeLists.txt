@@ -1,4 +1,4 @@
-add_executable(dmlog_monitor
+dmod_add_tool(dmlog_monitor
     main.c
     openocd.c
     monitor.c
@@ -8,9 +8,7 @@ add_executable(dmlog_monitor
 )
 
 target_link_libraries(dmlog_monitor
-    PRIVATE
-        dmod
-        dmlog
+    dmlog
 )
 
 # Add project version to the compiler definitions
