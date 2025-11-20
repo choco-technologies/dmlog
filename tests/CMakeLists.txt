@@ -9,7 +9,7 @@ enable_testing()
 # =====================================================================
 #               Test: Unit Tests
 # =====================================================================
-add_executable(test_dmlog_unit test_dmlog_unit.c)
+add_executable(test_dmlog_unit test_dmlog_unit.c dmod_test_stubs.c)
 target_link_libraries(test_dmlog_unit 
     PRIVATE 
         dmlog
@@ -22,12 +22,11 @@ target_include_directories(test_dmlog_unit
     PRIVATE
         ${CMAKE_SOURCE_DIR}/include
 )
-target_link_options(test_dmlog_unit PRIVATE -L ${DMOD_SCRIPTS_DIR} -T ${DMOD_SCRIPTS_DIR}/main.ld)
 
 # =====================================================================
 #               Test: Simple Test
 # =====================================================================
-add_executable(test_simple test_simple.c)
+add_executable(test_simple test_simple.c dmod_test_stubs.c)
 target_link_libraries(test_simple 
     PRIVATE 
         dmlog
@@ -40,12 +39,11 @@ target_include_directories(test_simple
     PRIVATE
         ${CMAKE_SOURCE_DIR}/include
 )
-target_link_options(test_simple PRIVATE -L ${DMOD_SCRIPTS_DIR} -T ${DMOD_SCRIPTS_DIR}/main.ld)
 
 # =====================================================================
 #               Test: Benchmark Test
 # =====================================================================
-add_executable(test_benchmark test_benchmark.c)
+add_executable(test_benchmark test_benchmark.c dmod_test_stubs.c)
 target_link_libraries(test_benchmark 
     PRIVATE 
         dmlog
@@ -58,12 +56,11 @@ target_include_directories(test_benchmark
     PRIVATE
         ${CMAKE_SOURCE_DIR}/include
 )
-target_link_options(test_benchmark PRIVATE -L ${DMOD_SCRIPTS_DIR} -T ${DMOD_SCRIPTS_DIR}/main.ld)
 
 # =====================================================================
 #               Test: Input Test
 # =====================================================================
-add_executable(test_input test_input.c)
+add_executable(test_input test_input.c dmod_test_stubs.c)
 target_link_libraries(test_input 
     PRIVATE 
         dmlog
@@ -76,12 +73,11 @@ target_include_directories(test_input
     PRIVATE
         ${CMAKE_SOURCE_DIR}/include
 )
-target_link_options(test_input PRIVATE -L ${DMOD_SCRIPTS_DIR} -T ${DMOD_SCRIPTS_DIR}/main.ld)
 
 # =====================================================================
 #               Test: Interactive Test Application
 # =====================================================================
-add_executable(test_app_interactive test_app_interactive.c)
+add_executable(test_app_interactive test_app_interactive.c dmod_test_stubs.c)
 target_link_libraries(test_app_interactive 
     PRIVATE 
         dmlog
@@ -94,7 +90,6 @@ target_include_directories(test_app_interactive
     PRIVATE
         ${CMAKE_SOURCE_DIR}/include
 )
-target_link_options(test_app_interactive PRIVATE -L ${DMOD_SCRIPTS_DIR} -T ${DMOD_SCRIPTS_DIR}/main.ld)
 # Disable PIE for test_app_interactive to get predictable addresses for gdbserver testing
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(test_app_interactive PRIVATE -fno-pie)
