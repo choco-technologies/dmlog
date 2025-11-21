@@ -300,6 +300,13 @@ bool monitor_wait_for_new_data(monitor_ctx_t *ctx)
             TRACE_VERBOSE("Input requested (flags=0x%08X), returning from wait\n", ctx->ring.flags);
             return true;
         }
+        // Check if firmware requested file transfer - return early to handle it
+        // This prevents deadlock when firmware transfers files without producing output
+        if(ctx->ring.flags & (DMLOG_FLAG_FILE_SEND | DMLOG_FLAG_FILE_RECV))
+        {
+            TRACE_VERBOSE("File transfer requested (flags=0x%08X), returning from wait\n", ctx->ring.flags);
+            return true;
+        }
         empty = is_buffer_empty(ctx);
     }
     TRACE_VERBOSE("New data available, returning from wait\n");
