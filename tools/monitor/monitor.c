@@ -772,7 +772,10 @@ bool monitor_handle_input_request(monitor_ctx_t *ctx)
             if(ctx->init_script_mode)
             {
                 TRACE_INFO("Init script completed, switching to stdin\n");
-                fclose(ctx->input_file);
+                if(fclose(ctx->input_file) != 0)
+                {
+                    TRACE_WARN("Failed to close init script file\n");
+                }
                 ctx->input_file = NULL;
                 // Loop will retry with stdin
                 continue;
@@ -785,10 +788,18 @@ bool monitor_handle_input_request(monitor_ctx_t *ctx)
             }
         }
         // Reading from stdin failed
-        if(feof(stdin))
+        if(feof(stdin) || ferror(stdin))
         {
             // stdin reached EOF (e.g., piped input ended or Ctrl+D pressed)
-            TRACE_INFO("stdin reached EOF, exiting\n");
+            // or an I/O error occurred
+            if(ferror(stdin))
+            {
+                TRACE_ERROR("stdin I/O error, exiting\n");
+            }
+            else
+            {
+                TRACE_INFO("stdin reached EOF, exiting\n");
+            }
             configure_input_mode(true, true); // Restore terminal settings
             return false;
         }
