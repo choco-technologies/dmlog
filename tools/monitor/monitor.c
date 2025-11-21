@@ -750,13 +750,22 @@ bool monitor_handle_input_request(monitor_ctx_t *ctx)
 
     // Read input from file or stdin (no prompt, firmware should print its own prompt)
     char input_buffer[512];
-    FILE* input_source = ctx->input_file ? ctx->input_file : stdin;
     bool echo_on = (ctx->ring.flags & DMLOG_FLAG_INPUT_ECHO_OFF) == 0;
     bool line_mode = (ctx->ring.flags & DMLOG_FLAG_INPUT_LINE_MODE) != 0;
     
     configure_input_mode(echo_on, line_mode);
-    while(fgets(input_buffer, sizeof(input_buffer), input_source) == NULL)
+    
+    // Read input, potentially switching from init script to stdin
+    while(true)
     {
+        FILE* input_source = ctx->input_file ? ctx->input_file : stdin;
+        if(fgets(input_buffer, sizeof(input_buffer), input_source) != NULL)
+        {
+            // Successfully read input
+            break;
+        }
+        
+        // Failed to read - check if we can switch to stdin
         if(ctx->input_file)
         {
             // If in init-script mode and we reach EOF, switch to stdin
@@ -765,16 +774,18 @@ bool monitor_handle_input_request(monitor_ctx_t *ctx)
                 TRACE_INFO("Init script completed, switching to stdin\n");
                 fclose(ctx->input_file);
                 ctx->input_file = NULL;
-                input_source = stdin;
-                // Try reading from stdin now
+                // Loop will retry with stdin
                 continue;
             }
             else
             {
                 TRACE_ERROR("Failed to read input from input file (end of file or error)\n");
+                configure_input_mode(true, true); // Restore terminal settings
                 return false;
             }
         }
+        // If reading from stdin failed, we're done (should not happen in blocking mode)
+        // Loop will retry reading from stdin
     }
     configure_input_mode(true, true); // Restore terminal settings
 
@@ -797,5 +808,7 @@ bool monitor_handle_input_request(monitor_ctx_t *ctx)
     // Update local cache
     ctx->ring.flags = new_flags;
 
-    return feof(input_source) == 0;
+    // Return true to continue monitoring (false would exit the monitor loop)
+    // Only return false if we're using an input file (not init script mode) and it has ended
+    return !(ctx->input_file && feof(ctx->input_file));
 }
