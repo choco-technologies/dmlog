@@ -784,8 +784,16 @@ bool monitor_handle_input_request(monitor_ctx_t *ctx)
                 return false;
             }
         }
-        // Reading from stdin - this should not fail in normal blocking mode
-        // If it does fail (e.g., stdin closed), the loop continues trying
+        // Reading from stdin failed
+        if(feof(stdin))
+        {
+            // stdin reached EOF (e.g., piped input ended or Ctrl+D pressed)
+            TRACE_INFO("stdin reached EOF, exiting\n");
+            configure_input_mode(true, true); // Restore terminal settings
+            return false;
+        }
+        // Other error - this should not happen in normal blocking mode
+        // Continue trying to read
     }
     configure_input_mode(true, true); // Restore terminal settings
 
@@ -809,13 +817,17 @@ bool monitor_handle_input_request(monitor_ctx_t *ctx)
     ctx->ring.flags = new_flags;
 
     // Return true to continue monitoring, false to exit
-    // We should only exit (return false) when using an input file in non-init-script mode
-    // and the file has reached EOF
+    // Exit conditions:
+    // 1. Using --input-file (not init-script) and file has ended
+    // 2. stdin EOF was handled above (returns false immediately)
+    // Continue monitoring in all other cases:
+    // - Using --init-script (ctx->input_file may be NULL after switching to stdin)
+    // - Reading from stdin directly (no input file specified)
     if(ctx->input_file && !ctx->init_script_mode)
     {
-        // Using --input-file: check if file has ended
+        // Using --input-file: exit if file has ended
         return !feof(ctx->input_file);
     }
-    // Otherwise continue monitoring (reading from stdin or init script that hasn't ended yet)
+    // Continue monitoring
     return true;
 }
