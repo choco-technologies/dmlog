@@ -218,6 +218,12 @@ dmlog_ctx_t dmlog_create(void *buffer, dmlog_index_t buffer_size)
     ctx->ring.input_head_offset = 0;
     ctx->ring.input_tail_offset = 0;
     ctx->ring.flags             = 0;
+    ctx->ring.file_chunk_buffer = 0;
+    ctx->ring.file_chunk_size   = 0;
+    ctx->ring.file_chunk_number = 0;
+    ctx->ring.file_total_size   = 0;
+    memset((void*)ctx->ring.file_path, 0, DMLOG_MAX_FILE_PATH);
+    memset((void*)ctx->ring.file_path_pc, 0, DMLOG_MAX_FILE_PATH);
     ctx->write_entry_offset     = 0;
     ctx->read_entry_offset      = 0;
     ctx->input_read_entry_offset = 0;
@@ -594,7 +600,13 @@ void dmlog_clear(dmlog_ctx_t ctx)
         memset(ctx->read_buffer, 0, DMOD_LOG_MAX_ENTRY_SIZE);
         memset(ctx->input_read_buffer, 0, DMOD_LOG_MAX_ENTRY_SIZE);
         memset(ctx->buffer, 0, ctx->ring.buffer_size + ctx->ring.input_buffer_size);
-        ctx->ring.flags &= ~(DMLOG_FLAG_CLEAR_BUFFER | DMLOG_FLAG_INPUT_AVAILABLE | DMLOG_FLAG_INPUT_REQUESTED);
+        ctx->ring.flags &= ~(DMLOG_FLAG_CLEAR_BUFFER | DMLOG_FLAG_INPUT_AVAILABLE | DMLOG_FLAG_INPUT_REQUESTED | DMLOG_FLAG_FILE_SEND | DMLOG_FLAG_FILE_RECV);
+        ctx->ring.file_chunk_buffer = 0;
+        ctx->ring.file_chunk_size = 0;
+        ctx->ring.file_chunk_number = 0;
+        ctx->ring.file_total_size = 0;
+        memset((void*)ctx->ring.file_path, 0, DMLOG_MAX_FILE_PATH);
+        memset((void*)ctx->ring.file_path_pc, 0, DMLOG_MAX_FILE_PATH);
         context_unlock(ctx);
     }
     Dmod_ExitCritical();
@@ -824,6 +836,299 @@ void dmlog_input_request(dmlog_ctx_t ctx, dmlog_input_request_flags_t flags)
         context_unlock(ctx);
     }
     Dmod_ExitCritical();
+}
+
+/**
+ * @brief Send a file from firmware to PC in chunks.
+ * 
+ * This function initiates a file transfer from the firmware to the host PC.
+ * The file is read from the firmware filesystem and transferred in chunks.
+ * The monitor tool on the PC side detects the transfer flag and saves the 
+ * received chunks to disk at the specified PC path.
+ * 
+ * NOTE: This function uses dynamic memory allocation via Dmod_Malloc() and 
+ * file I/O operations via Dmod_FileOpen(). It assumes the system is fully 
+ * initialized and these interfaces are available.
+ * 
+ * @param ctx DMLoG context.
+ * @param file_path_fw Path to the file in the firmware filesystem (source).
+ * @param file_path_pc Path where the file should be saved on PC (destination).
+ * @param chunk_size Size of each chunk to send (0 = use default).
+ * @return true on success (all chunks sent), false on failure.
+ */
+bool dmlog_sendf(dmlog_ctx_t ctx, const char* file_path_fw, const char* file_path_pc, uint32_t chunk_size)
+{
+    bool result = false;
+    void* file = NULL;
+    void* chunk_buffer = NULL;
+    
+    Dmod_EnterCritical();
+    if(!dmlog_is_valid(ctx) || file_path_fw == NULL || file_path_pc == NULL)
+    {
+        Dmod_ExitCritical();
+        return false;
+    }
+    
+    // Use default chunk size if not specified
+    if(chunk_size == 0)
+    {
+        chunk_size = DMLOG_DEFAULT_CHUNK_SIZE;
+    }
+    
+    context_lock(ctx);
+    
+    // Open the file for reading
+    file = Dmod_FileOpen(file_path_fw, "rb");
+    if(file == NULL)
+    {
+        context_unlock(ctx);
+        Dmod_ExitCritical();
+        return false;
+    }
+    
+    // Get file size
+    size_t file_size = Dmod_FileSize(file);
+    
+    // Allocate buffer for chunks (using Dmod_Malloc as system is initialized)
+    chunk_buffer = Dmod_Malloc(chunk_size);
+    if(chunk_buffer == NULL)
+    {
+        Dmod_FileClose(file);
+        context_unlock(ctx);
+        Dmod_ExitCritical();
+        return false;
+    }
+    
+    // Copy firmware file path to ring buffer
+    size_t path_len = strlen(file_path_fw);
+    if(path_len >= DMLOG_MAX_FILE_PATH)
+    {
+        path_len = DMLOG_MAX_FILE_PATH - 1;
+    }
+    memcpy((void*)ctx->ring.file_path, file_path_fw, path_len);
+    ((char*)ctx->ring.file_path)[path_len] = '\0';
+    
+    // Copy PC file path to ring buffer
+    path_len = strlen(file_path_pc);
+    if(path_len >= DMLOG_MAX_FILE_PATH)
+    {
+        path_len = DMLOG_MAX_FILE_PATH - 1;
+    }
+    memcpy((void*)ctx->ring.file_path_pc, file_path_pc, path_len);
+    ((char*)ctx->ring.file_path_pc)[path_len] = '\0';
+    
+    // Store file metadata
+    ctx->ring.file_total_size = (uint32_t)file_size;
+    ctx->ring.file_chunk_buffer = (uint64_t)((uintptr_t)chunk_buffer);
+    
+    // Send file in chunks
+    uint32_t chunk_number = 0;
+    size_t bytes_remaining = file_size;
+    result = true;
+    
+    while(bytes_remaining > 0)
+    {
+        // Calculate chunk size for this iteration
+        size_t current_chunk_size = (bytes_remaining > chunk_size) ? chunk_size : bytes_remaining;
+        
+        // Read chunk from file
+        size_t bytes_read = Dmod_FileRead(chunk_buffer, 1, current_chunk_size, file);
+        if(bytes_read != current_chunk_size)
+        {
+            result = false;
+            break;
+        }
+        
+        // Update ring buffer with chunk info
+        ctx->ring.file_chunk_number = chunk_number;
+        ctx->ring.file_chunk_size = (uint32_t)current_chunk_size;
+        
+        // Set file send flag to signal monitor
+        ctx->ring.flags |= DMLOG_FLAG_FILE_SEND;
+        
+        // Wait for monitor to clear the flag (indicating chunk was received)
+        volatile uint32_t timeout = 1000000; // Timeout to prevent infinite loop
+        while((ctx->ring.flags & DMLOG_FLAG_FILE_SEND) && timeout > 0)
+        {
+            timeout--;
+        }
+        
+        if(timeout == 0)
+        {
+            result = false;
+            break;
+        }
+        
+        bytes_remaining -= current_chunk_size;
+        chunk_number++;
+    }
+    
+    // Clean up
+    Dmod_FileClose(file);
+    Dmod_Free(chunk_buffer);
+    
+    // Clear file transfer metadata
+    ctx->ring.file_chunk_buffer = 0;
+    ctx->ring.file_chunk_size = 0;
+    ctx->ring.file_chunk_number = 0;
+    ctx->ring.file_total_size = 0;
+    memset((void*)ctx->ring.file_path, 0, DMLOG_MAX_FILE_PATH);
+    memset((void*)ctx->ring.file_path_pc, 0, DMLOG_MAX_FILE_PATH);
+    
+    context_unlock(ctx);
+    Dmod_ExitCritical();
+    
+    return result;
+}
+
+/**
+ * @brief Receive a file from PC to firmware in chunks.
+ * 
+ * This function initiates a file transfer from the host PC to the firmware.
+ * The firmware requests a file from a PC path, and the monitor tool on the PC side 
+ * reads the file and sends it in chunks. The firmware receives and writes the chunks 
+ * to its filesystem at the specified firmware path.
+ * 
+ * NOTE: This function uses dynamic memory allocation via Dmod_Malloc() and 
+ * file I/O operations via Dmod_FileOpen(). It assumes the system is fully 
+ * initialized and these interfaces are available.
+ * 
+ * @param ctx DMLoG context.
+ * @param file_path_fw Path where the file should be saved in the firmware filesystem (destination).
+ * @param file_path_pc Path to the file on PC to read from (source).
+ * @param chunk_size Size of each chunk to receive (0 = use default).
+ * @return true on success (all chunks received), false on failure.
+ */
+bool dmlog_recvf(dmlog_ctx_t ctx, const char* file_path_fw, const char* file_path_pc, uint32_t chunk_size)
+{
+    bool result = false;
+    void* file = NULL;
+    void* chunk_buffer = NULL;
+    
+    Dmod_EnterCritical();
+    if(!dmlog_is_valid(ctx) || file_path_fw == NULL || file_path_pc == NULL)
+    {
+        Dmod_ExitCritical();
+        return false;
+    }
+    
+    // Use default chunk size if not specified
+    if(chunk_size == 0)
+    {
+        chunk_size = DMLOG_DEFAULT_CHUNK_SIZE;
+    }
+    
+    context_lock(ctx);
+    
+    // Allocate buffer for chunks (using Dmod_Malloc as system is initialized)
+    chunk_buffer = Dmod_Malloc(chunk_size);
+    if(chunk_buffer == NULL)
+    {
+        context_unlock(ctx);
+        Dmod_ExitCritical();
+        return false;
+    }
+    
+    // Open the file for writing
+    file = Dmod_FileOpen(file_path_fw, "wb");
+    if(file == NULL)
+    {
+        Dmod_Free(chunk_buffer);
+        context_unlock(ctx);
+        Dmod_ExitCritical();
+        return false;
+    }
+    
+    // Copy firmware file path to ring buffer
+    size_t path_len = strlen(file_path_fw);
+    if(path_len >= DMLOG_MAX_FILE_PATH)
+    {
+        path_len = DMLOG_MAX_FILE_PATH - 1;
+    }
+    memcpy((void*)ctx->ring.file_path, file_path_fw, path_len);
+    ((char*)ctx->ring.file_path)[path_len] = '\0';
+    
+    // Copy PC file path to ring buffer
+    path_len = strlen(file_path_pc);
+    if(path_len >= DMLOG_MAX_FILE_PATH)
+    {
+        path_len = DMLOG_MAX_FILE_PATH - 1;
+    }
+    memcpy((void*)ctx->ring.file_path_pc, file_path_pc, path_len);
+    ((char*)ctx->ring.file_path_pc)[path_len] = '\0';
+    
+    // Store buffer address and size in ring
+    ctx->ring.file_chunk_buffer = (uint64_t)((uintptr_t)chunk_buffer);
+    ctx->ring.file_chunk_size = chunk_size;
+    ctx->ring.file_chunk_number = 0;
+    ctx->ring.file_total_size = 0; // Unknown at start
+    
+    // Set file receive flag to signal monitor
+    ctx->ring.flags |= DMLOG_FLAG_FILE_RECV;
+    
+    // Receive file in chunks
+    uint32_t expected_chunk = 0;
+    result = true;
+    
+    while(true)
+    {
+        // Wait for monitor to provide a chunk (clear the flag when chunk is ready)
+        volatile uint32_t timeout = 10000000; // Longer timeout for PC file operations
+        while((ctx->ring.flags & DMLOG_FLAG_FILE_RECV) && timeout > 0)
+        {
+            timeout--;
+        }
+        
+        if(timeout == 0)
+        {
+            result = false;
+            break;
+        }
+        
+        // Check if this is the last chunk (chunk_size will be 0 to signal end)
+        if(ctx->ring.file_chunk_size == 0)
+        {
+            // End of file transfer
+            break;
+        }
+        
+        // Verify chunk number
+        if(ctx->ring.file_chunk_number != expected_chunk)
+        {
+            result = false;
+            break;
+        }
+        
+        // Write chunk to file
+        size_t bytes_written = Dmod_FileWrite(chunk_buffer, 1, ctx->ring.file_chunk_size, file);
+        if(bytes_written != ctx->ring.file_chunk_size)
+        {
+            result = false;
+            break;
+        }
+        
+        expected_chunk++;
+        
+        // Signal that we're ready for next chunk
+        ctx->ring.flags |= DMLOG_FLAG_FILE_RECV;
+    }
+    
+    // Clean up
+    Dmod_FileClose(file);
+    Dmod_Free(chunk_buffer);
+    
+    // Clear file transfer metadata
+    ctx->ring.file_chunk_buffer = 0;
+    ctx->ring.file_chunk_size = 0;
+    ctx->ring.file_chunk_number = 0;
+    ctx->ring.file_total_size = 0;
+    memset((void*)ctx->ring.file_path, 0, DMLOG_MAX_FILE_PATH);
+    memset((void*)ctx->ring.file_path_pc, 0, DMLOG_MAX_FILE_PATH);
+    
+    context_unlock(ctx);
+    Dmod_ExitCritical();
+    
+    return result;
 }
 
 #ifndef DMLOG_DONT_IMPLEMENT_DMOD_API

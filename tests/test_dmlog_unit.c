@@ -316,7 +316,9 @@ static void test_buffer_wraparound(void) {
     TEST_SECTION("Buffer Wraparound");
     
     // Use a smaller buffer for this test (but large enough for context + some entries)
-    char small_buffer[2048];
+    // With the enlarged ring structure (580 bytes) and full context (~2100 bytes),
+    // we need at least 3KB for a meaningful test
+    char small_buffer[3072];
     memset(small_buffer, 0, sizeof(small_buffer));
     
     dmlog_ctx_t ctx = dmlog_create(small_buffer, sizeof(small_buffer));

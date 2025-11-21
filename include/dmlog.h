@@ -15,6 +15,16 @@
 #define DMOD_LOG_MAX_ENTRY_SIZE    500
 #endif
 
+/* Maximum file path length for file transfers */
+#ifndef DMLOG_MAX_FILE_PATH
+#define DMLOG_MAX_FILE_PATH        256
+#endif
+
+/* Default chunk size for file transfers */
+#ifndef DMLOG_DEFAULT_CHUNK_SIZE
+#define DMLOG_DEFAULT_CHUNK_SIZE   512
+#endif
+
 #ifndef DMLOG_PACKED
 #   define DMLOG_PACKED __attribute__((packed))
 #endif
@@ -26,6 +36,8 @@
 #define DMLOG_FLAG_INPUT_REQUESTED  0x00000008  /* Firmware requests input from user */
 #define DMLOG_FLAG_INPUT_ECHO_OFF   0x00000010  /* Disable echoing of input characters */
 #define DMLOG_FLAG_INPUT_LINE_MODE  0x00000020  /* Input line mode (vs. character mode) */
+#define DMLOG_FLAG_FILE_SEND        0x00000040  /* File send operation in progress (FW -> PC) */
+#define DMLOG_FLAG_FILE_RECV        0x00000080  /* File receive operation in progress (PC -> FW) */
 
 /**
  * @brief Input request flags
@@ -73,6 +85,12 @@ typedef struct
     volatile dmlog_index_t      input_tail_offset;
     volatile dmlog_index_t      input_buffer_size;
     volatile uint64_t           input_buffer;
+    volatile uint64_t           file_chunk_buffer;     /* Address of file chunk buffer (allocated by firmware) */
+    volatile uint32_t           file_chunk_size;       /* Size of current file chunk */
+    volatile uint32_t           file_chunk_number;     /* Current chunk number (0-based) */
+    volatile uint32_t           file_total_size;       /* Total file size in bytes */
+    volatile char               file_path[DMLOG_MAX_FILE_PATH];     /* File path in firmware filesystem */
+    volatile char               file_path_pc[DMLOG_MAX_FILE_PATH];  /* File path on PC side */
 } DMLOG_PACKED dmlog_ring_t;
 
 typedef struct dmlog_ctx* dmlog_ctx_t;
@@ -102,5 +120,18 @@ DMOD_BUILTIN_API(dmlog, 1.0, char,             _input_getc,        (dmlog_ctx_t 
 DMOD_BUILTIN_API(dmlog, 1.0, bool,             _input_gets,        (dmlog_ctx_t ctx, char* s, size_t max_len) );
 DMOD_BUILTIN_API(dmlog, 1.0, dmlog_index_t,    _input_get_free_space, (dmlog_ctx_t ctx) );
 DMOD_BUILTIN_API(dmlog, 1.0, void,             _input_request,     (dmlog_ctx_t ctx, dmlog_input_request_flags_t flags) );
+
+/* File transfer API (firmware to/from PC) 
+ * 
+ * NOTE: These functions use dynamic memory allocation (Dmod_Malloc) and file I/O 
+ * (Dmod_FileOpen, etc.). They assume the system is fully initialized and these 
+ * interfaces are available.
+ * 
+ * @param file_path_fw Path to the file in firmware filesystem
+ * @param file_path_pc Path to the file on PC side (destination for sendf, source for recvf)
+ * @param chunk_size Size of chunks for transfer (0 = use default)
+ */
+DMOD_BUILTIN_API(dmlog, 1.0, bool,             _sendf,             (dmlog_ctx_t ctx, const char* file_path_fw, const char* file_path_pc, uint32_t chunk_size) );
+DMOD_BUILTIN_API(dmlog, 1.0, bool,             _recvf,             (dmlog_ctx_t ctx, const char* file_path_fw, const char* file_path_pc, uint32_t chunk_size) );
 
 #endif // DMLOG_H

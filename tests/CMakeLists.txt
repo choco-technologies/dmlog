@@ -75,6 +75,23 @@ target_include_directories(test_input
 )
 
 # =====================================================================
+#               Test: File Transfer Test
+# =====================================================================
+add_executable(test_file_transfer test_file_transfer.c dmod_test_stubs.c)
+target_link_libraries(test_file_transfer 
+    PRIVATE 
+        dmlog
+        dmod_system
+        dmod_common
+        dmod_fastlz
+        dmod_inc
+)
+target_include_directories(test_file_transfer
+    PRIVATE
+        ${CMAKE_SOURCE_DIR}/include
+)
+
+# =====================================================================
 #               Test: Interactive Test Application
 # =====================================================================
 add_executable(test_app_interactive test_app_interactive.c dmod_test_stubs.c)
@@ -96,10 +113,11 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     target_link_options(test_app_interactive PRIVATE -no-pie)
 endif()
 
-add_test(NAME dmlog_unit   COMMAND test_dmlog_unit)
-add_test(NAME simple_test  COMMAND test_simple)
-add_test(NAME benchmark    COMMAND test_benchmark)
-add_test(NAME input_test   COMMAND test_input)
+add_test(NAME dmlog_unit        COMMAND test_dmlog_unit)
+add_test(NAME simple_test       COMMAND test_simple)
+add_test(NAME benchmark         COMMAND test_benchmark)
+add_test(NAME input_test        COMMAND test_input)
+add_test(NAME file_transfer     COMMAND test_file_transfer)
 
 # =====================================================================
 #               Coverage Support (optional)
