@@ -982,7 +982,12 @@ bool dmlog_sendf(dmlog_ctx_t ctx, const char* file_path_fw, const char* file_pat
     Dmod_Free(chunk_buffer);
     Dmod_Free(transfer_info);
     
-    // Clear file transfer pointer
+    // Need to re-lock to clear the flag and pointer
+    Dmod_EnterCritical();
+    context_lock(ctx);
+    
+    // Clear file transfer flag and pointer
+    ctx->ring.flags &= ~DMLOG_FLAG_FILE_SEND;
     ctx->ring.file_transfer_info = 0;
     
     context_unlock(ctx);
@@ -1145,7 +1150,8 @@ bool dmlog_recvf(dmlog_ctx_t ctx, const char* file_path_fw, const char* file_pat
     Dmod_Free(chunk_buffer);
     Dmod_Free(transfer_info);
     
-    // Clear file transfer pointer
+    // Clear file transfer flag and pointer
+    ctx->ring.flags &= ~DMLOG_FLAG_FILE_RECV;
     ctx->ring.file_transfer_info = 0;
     
     context_unlock(ctx);
