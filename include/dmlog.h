@@ -41,6 +41,23 @@
 #   define DMLOG_PACKED __attribute__((packed))
 #endif
 
+/**
+ * @brief File transfer metadata structure
+ * 
+ * This structure contains all metadata for a file transfer operation.
+ * Firmware allocates this structure and provides its address to the ring buffer.
+ * This approach saves space in the ring buffer since file paths are large (256 bytes each).
+ */
+typedef struct
+{
+    volatile uint64_t           chunk_buffer;      /* Address of file chunk buffer (allocated by firmware) */
+    volatile uint32_t           chunk_size;        /* Size of current file chunk */
+    volatile uint32_t           chunk_number;      /* Current chunk number (0-based) */
+    volatile uint32_t           total_size;        /* Total file size in bytes */
+    volatile char               file_path[DMLOG_MAX_FILE_PATH];     /* File path in firmware filesystem */
+    volatile char               file_path_pc[DMLOG_MAX_FILE_PATH];  /* File path on PC side */
+} DMLOG_PACKED dmlog_file_transfer_t;
+
 /* Flag bits for commands/status */
 #define DMLOG_FLAG_CLEAR_BUFFER     0x00000001  /* Set to clear buffer, cleared after execution */
 #define DMLOG_FLAG_BUSY             0x00000002  /* Buffer busy flag - set during write operations */
@@ -97,12 +114,7 @@ typedef struct
     volatile dmlog_index_t      input_tail_offset;
     volatile dmlog_index_t      input_buffer_size;
     volatile uint64_t           input_buffer;
-    volatile uint64_t           file_chunk_buffer;     /* Address of file chunk buffer (allocated by firmware) */
-    volatile uint32_t           file_chunk_size;       /* Size of current file chunk */
-    volatile uint32_t           file_chunk_number;     /* Current chunk number (0-based) */
-    volatile uint32_t           file_total_size;       /* Total file size in bytes */
-    volatile char               file_path[DMLOG_MAX_FILE_PATH];     /* File path in firmware filesystem */
-    volatile char               file_path_pc[DMLOG_MAX_FILE_PATH];  /* File path on PC side */
+    volatile uint64_t           file_transfer_info;    /* Address of dmlog_file_transfer_t structure (allocated by firmware) */
 } DMLOG_PACKED dmlog_ring_t;
 
 typedef struct dmlog_ctx* dmlog_ctx_t;

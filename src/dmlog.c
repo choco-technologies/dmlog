@@ -218,12 +218,7 @@ dmlog_ctx_t dmlog_create(void *buffer, dmlog_index_t buffer_size)
     ctx->ring.input_head_offset = 0;
     ctx->ring.input_tail_offset = 0;
     ctx->ring.flags             = 0;
-    ctx->ring.file_chunk_buffer = 0;
-    ctx->ring.file_chunk_size   = 0;
-    ctx->ring.file_chunk_number = 0;
-    ctx->ring.file_total_size   = 0;
-    memset((void*)ctx->ring.file_path, 0, DMLOG_MAX_FILE_PATH);
-    memset((void*)ctx->ring.file_path_pc, 0, DMLOG_MAX_FILE_PATH);
+    ctx->ring.file_transfer_info = 0;
     ctx->write_entry_offset     = 0;
     ctx->read_entry_offset      = 0;
     ctx->input_read_entry_offset = 0;
@@ -601,12 +596,7 @@ void dmlog_clear(dmlog_ctx_t ctx)
         memset(ctx->input_read_buffer, 0, DMOD_LOG_MAX_ENTRY_SIZE);
         memset(ctx->buffer, 0, ctx->ring.buffer_size + ctx->ring.input_buffer_size);
         ctx->ring.flags &= ~(DMLOG_FLAG_CLEAR_BUFFER | DMLOG_FLAG_INPUT_AVAILABLE | DMLOG_FLAG_INPUT_REQUESTED | DMLOG_FLAG_FILE_SEND | DMLOG_FLAG_FILE_RECV);
-        ctx->ring.file_chunk_buffer = 0;
-        ctx->ring.file_chunk_size = 0;
-        ctx->ring.file_chunk_number = 0;
-        ctx->ring.file_total_size = 0;
-        memset((void*)ctx->ring.file_path, 0, DMLOG_MAX_FILE_PATH);
-        memset((void*)ctx->ring.file_path_pc, 0, DMLOG_MAX_FILE_PATH);
+        ctx->ring.file_transfer_info = 0;
         context_unlock(ctx);
     }
     Dmod_ExitCritical();
@@ -839,23 +829,6 @@ void dmlog_input_request(dmlog_ctx_t ctx, dmlog_input_request_flags_t flags)
 }
 
 /**
- * @brief Helper function to copy file paths to ring buffer.
- * 
- * @param dest Destination buffer in ring
- * @param src Source path string
- */
-static void copy_file_path(volatile char* dest, const char* src)
-{
-    size_t path_len = strlen(src);
-    if(path_len >= DMLOG_MAX_FILE_PATH)
-    {
-        path_len = DMLOG_MAX_FILE_PATH - 1;
-    }
-    memcpy((void*)dest, src, path_len);
-    ((char*)dest)[path_len] = '\0';
-}
-
-/**
  * @brief Send a file from firmware to PC in chunks.
  * 
  * This function initiates a file transfer from the firmware to the host PC.
@@ -878,6 +851,7 @@ bool dmlog_sendf(dmlog_ctx_t ctx, const char* file_path_fw, const char* file_pat
     bool result = false;
     void* file = NULL;
     void* chunk_buffer = NULL;
+    dmlog_file_transfer_t* transfer_info = NULL;
     
     Dmod_EnterCritical();
     if(!dmlog_is_valid(ctx) || file_path_fw == NULL || file_path_pc == NULL)
@@ -923,13 +897,26 @@ bool dmlog_sendf(dmlog_ctx_t ctx, const char* file_path_fw, const char* file_pat
         return false;
     }
     
-    // Copy file paths to ring buffer using helper function
-    copy_file_path(ctx->ring.file_path, file_path_fw);
-    copy_file_path(ctx->ring.file_path_pc, file_path_pc);
+    // Allocate file transfer info structure (using Dmod_Malloc as system is initialized)
+    transfer_info = (dmlog_file_transfer_t*)Dmod_Malloc(sizeof(dmlog_file_transfer_t));
+    if(transfer_info == NULL)
+    {
+        Dmod_Free(chunk_buffer);
+        Dmod_FileClose(file);
+        context_unlock(ctx);
+        Dmod_ExitCritical();
+        return false;
+    }
     
-    // Store file metadata
-    ctx->ring.file_total_size = (uint32_t)file_size;
-    ctx->ring.file_chunk_buffer = (uint64_t)((uintptr_t)chunk_buffer);
+    // Initialize transfer info structure
+    memset((void*)transfer_info, 0, sizeof(dmlog_file_transfer_t));
+    transfer_info->chunk_buffer = (uint64_t)((uintptr_t)chunk_buffer);
+    transfer_info->total_size = (uint32_t)file_size;
+    strncpy((char*)transfer_info->file_path, file_path_fw, DMLOG_MAX_FILE_PATH - 1);
+    strncpy((char*)transfer_info->file_path_pc, file_path_pc, DMLOG_MAX_FILE_PATH - 1);
+    
+    // Store pointer to transfer info in ring buffer
+    ctx->ring.file_transfer_info = (uint64_t)((uintptr_t)transfer_info);
     
     // Send file in chunks
     uint32_t chunk_number = 0;
@@ -949,9 +936,9 @@ bool dmlog_sendf(dmlog_ctx_t ctx, const char* file_path_fw, const char* file_pat
             break;
         }
         
-        // Update ring buffer with chunk info
-        ctx->ring.file_chunk_number = chunk_number;
-        ctx->ring.file_chunk_size = (uint32_t)current_chunk_size;
+        // Update transfer info structure with chunk info
+        transfer_info->chunk_number = chunk_number;
+        transfer_info->chunk_size = (uint32_t)current_chunk_size;
         
         // Set file send flag to signal monitor
         ctx->ring.flags |= DMLOG_FLAG_FILE_SEND;
@@ -976,14 +963,10 @@ bool dmlog_sendf(dmlog_ctx_t ctx, const char* file_path_fw, const char* file_pat
     // Clean up
     Dmod_FileClose(file);
     Dmod_Free(chunk_buffer);
+    Dmod_Free(transfer_info);
     
-    // Clear file transfer metadata
-    ctx->ring.file_chunk_buffer = 0;
-    ctx->ring.file_chunk_size = 0;
-    ctx->ring.file_chunk_number = 0;
-    ctx->ring.file_total_size = 0;
-    memset((void*)ctx->ring.file_path, 0, DMLOG_MAX_FILE_PATH);
-    memset((void*)ctx->ring.file_path_pc, 0, DMLOG_MAX_FILE_PATH);
+    // Clear file transfer pointer
+    ctx->ring.file_transfer_info = 0;
     
     context_unlock(ctx);
     Dmod_ExitCritical();
@@ -1014,6 +997,7 @@ bool dmlog_recvf(dmlog_ctx_t ctx, const char* file_path_fw, const char* file_pat
     bool result = false;
     void* file = NULL;
     void* chunk_buffer = NULL;
+    dmlog_file_transfer_t* transfer_info = NULL;
     
     Dmod_EnterCritical();
     if(!dmlog_is_valid(ctx) || file_path_fw == NULL || file_path_pc == NULL)
@@ -1049,15 +1033,28 @@ bool dmlog_recvf(dmlog_ctx_t ctx, const char* file_path_fw, const char* file_pat
         return false;
     }
     
-    // Copy file paths to ring buffer using helper function
-    copy_file_path(ctx->ring.file_path, file_path_fw);
-    copy_file_path(ctx->ring.file_path_pc, file_path_pc);
+    // Allocate file transfer info structure (using Dmod_Malloc as system is initialized)
+    transfer_info = (dmlog_file_transfer_t*)Dmod_Malloc(sizeof(dmlog_file_transfer_t));
+    if(transfer_info == NULL)
+    {
+        Dmod_Free(chunk_buffer);
+        Dmod_FileClose(file);
+        context_unlock(ctx);
+        Dmod_ExitCritical();
+        return false;
+    }
     
-    // Store buffer address and size in ring
-    ctx->ring.file_chunk_buffer = (uint64_t)((uintptr_t)chunk_buffer);
-    ctx->ring.file_chunk_size = chunk_size;
-    ctx->ring.file_chunk_number = 0;
-    ctx->ring.file_total_size = 0; // Unknown at start
+    // Initialize transfer info structure
+    memset((void*)transfer_info, 0, sizeof(dmlog_file_transfer_t));
+    transfer_info->chunk_buffer = (uint64_t)((uintptr_t)chunk_buffer);
+    transfer_info->chunk_size = chunk_size;
+    transfer_info->chunk_number = 0;
+    transfer_info->total_size = 0; // Unknown at start
+    strncpy((char*)transfer_info->file_path, file_path_fw, DMLOG_MAX_FILE_PATH - 1);
+    strncpy((char*)transfer_info->file_path_pc, file_path_pc, DMLOG_MAX_FILE_PATH - 1);
+    
+    // Store pointer to transfer info in ring buffer
+    ctx->ring.file_transfer_info = (uint64_t)((uintptr_t)transfer_info);
     
     // Set file receive flag to signal monitor
     ctx->ring.flags |= DMLOG_FLAG_FILE_RECV;
@@ -1082,22 +1079,22 @@ bool dmlog_recvf(dmlog_ctx_t ctx, const char* file_path_fw, const char* file_pat
         }
         
         // Check if this is the last chunk (chunk_size will be 0 to signal end)
-        if(ctx->ring.file_chunk_size == 0)
+        if(transfer_info->chunk_size == 0)
         {
             // End of file transfer
             break;
         }
         
         // Verify chunk number
-        if(ctx->ring.file_chunk_number != expected_chunk)
+        if(transfer_info->chunk_number != expected_chunk)
         {
             result = false;
             break;
         }
         
         // Write chunk to file
-        size_t bytes_written = Dmod_FileWrite(chunk_buffer, 1, ctx->ring.file_chunk_size, file);
-        if(bytes_written != ctx->ring.file_chunk_size)
+        size_t bytes_written = Dmod_FileWrite(chunk_buffer, 1, transfer_info->chunk_size, file);
+        if(bytes_written != transfer_info->chunk_size)
         {
             result = false;
             break;
@@ -1112,14 +1109,10 @@ bool dmlog_recvf(dmlog_ctx_t ctx, const char* file_path_fw, const char* file_pat
     // Clean up
     Dmod_FileClose(file);
     Dmod_Free(chunk_buffer);
+    Dmod_Free(transfer_info);
     
-    // Clear file transfer metadata
-    ctx->ring.file_chunk_buffer = 0;
-    ctx->ring.file_chunk_size = 0;
-    ctx->ring.file_chunk_number = 0;
-    ctx->ring.file_total_size = 0;
-    memset((void*)ctx->ring.file_path, 0, DMLOG_MAX_FILE_PATH);
-    memset((void*)ctx->ring.file_path_pc, 0, DMLOG_MAX_FILE_PATH);
+    // Clear file transfer pointer
+    ctx->ring.file_transfer_info = 0;
     
     context_unlock(ctx);
     Dmod_ExitCritical();

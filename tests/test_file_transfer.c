@@ -307,14 +307,18 @@ void test_ring_buffer_size(void) {
     // With the new fields, we expect:
     // - 10 x uint32_t (40 bytes)
     // - 2 x uint64_t for buffers (16 bytes)
-    // - File transfer: 1 x uint64_t + 3 x uint32_t (8 + 12 = 20 bytes)
-    // - 2 x DMLOG_MAX_FILE_PATH bytes for paths (2 * 256 = 512 bytes)
-    // Total should be around 588 bytes with packing
+    // - File transfer: 1 x uint64_t pointer (8 bytes)
+    // Total should be around 64 bytes with packing (much smaller now!)
     
-    ASSERT_TEST(ring_size < 700, "Ring buffer structure is reasonably sized");
+    ASSERT_TEST(ring_size < 128, "Ring buffer structure is reasonably sized");
     
     // The structure should still be packed
-    ASSERT_TEST(ring_size > 550 && ring_size < 620, "Ring buffer size is in expected range");
+    ASSERT_TEST(ring_size > 50 && ring_size < 100, "Ring buffer size is in expected range");
+    
+    // Also test the file transfer structure size
+    size_t transfer_size = sizeof(dmlog_file_transfer_t);
+    TEST_INFO("dmlog_file_transfer_t size: %zu bytes", transfer_size);
+    ASSERT_TEST(transfer_size > 500 && transfer_size < 600, "Transfer info structure size is in expected range");
 }
 
 int main(void) {
