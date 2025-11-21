@@ -784,8 +784,8 @@ bool monitor_handle_input_request(monitor_ctx_t *ctx)
                 return false;
             }
         }
-        // If reading from stdin failed, we're done (should not happen in blocking mode)
-        // Loop will retry reading from stdin
+        // Reading from stdin - this should not fail in normal blocking mode
+        // If it does fail (e.g., stdin closed), the loop continues trying
     }
     configure_input_mode(true, true); // Restore terminal settings
 
@@ -808,7 +808,14 @@ bool monitor_handle_input_request(monitor_ctx_t *ctx)
     // Update local cache
     ctx->ring.flags = new_flags;
 
-    // Return true to continue monitoring (false would exit the monitor loop)
-    // Only return false if we're using an input file (not init script mode) and it has ended
-    return !(ctx->input_file && feof(ctx->input_file));
+    // Return true to continue monitoring, false to exit
+    // We should only exit (return false) when using an input file in non-init-script mode
+    // and the file has reached EOF
+    if(ctx->input_file && !ctx->init_script_mode)
+    {
+        // Using --input-file: check if file has ended
+        return !feof(ctx->input_file);
+    }
+    // Otherwise continue monitoring (reading from stdin or init script that hasn't ended yet)
+    return true;
 }
