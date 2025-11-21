@@ -839,6 +839,23 @@ void dmlog_input_request(dmlog_ctx_t ctx, dmlog_input_request_flags_t flags)
 }
 
 /**
+ * @brief Helper function to copy file paths to ring buffer.
+ * 
+ * @param dest Destination buffer in ring
+ * @param src Source path string
+ */
+static void copy_file_path(volatile char* dest, const char* src)
+{
+    size_t path_len = strlen(src);
+    if(path_len >= DMLOG_MAX_FILE_PATH)
+    {
+        path_len = DMLOG_MAX_FILE_PATH - 1;
+    }
+    memcpy((void*)dest, src, path_len);
+    ((char*)dest)[path_len] = '\0';
+}
+
+/**
  * @brief Send a file from firmware to PC in chunks.
  * 
  * This function initiates a file transfer from the firmware to the host PC.
@@ -886,8 +903,15 @@ bool dmlog_sendf(dmlog_ctx_t ctx, const char* file_path_fw, const char* file_pat
         return false;
     }
     
-    // Get file size
+    // Get file size and check if it fits in uint32_t
     size_t file_size = Dmod_FileSize(file);
+    if(file_size > DMLOG_MAX_FILE_SIZE)
+    {
+        Dmod_FileClose(file);
+        context_unlock(ctx);
+        Dmod_ExitCritical();
+        return false;
+    }
     
     // Allocate buffer for chunks (using Dmod_Malloc as system is initialized)
     chunk_buffer = Dmod_Malloc(chunk_size);
@@ -899,23 +923,9 @@ bool dmlog_sendf(dmlog_ctx_t ctx, const char* file_path_fw, const char* file_pat
         return false;
     }
     
-    // Copy firmware file path to ring buffer
-    size_t path_len = strlen(file_path_fw);
-    if(path_len >= DMLOG_MAX_FILE_PATH)
-    {
-        path_len = DMLOG_MAX_FILE_PATH - 1;
-    }
-    memcpy((void*)ctx->ring.file_path, file_path_fw, path_len);
-    ((char*)ctx->ring.file_path)[path_len] = '\0';
-    
-    // Copy PC file path to ring buffer
-    path_len = strlen(file_path_pc);
-    if(path_len >= DMLOG_MAX_FILE_PATH)
-    {
-        path_len = DMLOG_MAX_FILE_PATH - 1;
-    }
-    memcpy((void*)ctx->ring.file_path_pc, file_path_pc, path_len);
-    ((char*)ctx->ring.file_path_pc)[path_len] = '\0';
+    // Copy file paths to ring buffer using helper function
+    copy_file_path(ctx->ring.file_path, file_path_fw);
+    copy_file_path(ctx->ring.file_path_pc, file_path_pc);
     
     // Store file metadata
     ctx->ring.file_total_size = (uint32_t)file_size;
@@ -947,7 +957,7 @@ bool dmlog_sendf(dmlog_ctx_t ctx, const char* file_path_fw, const char* file_pat
         ctx->ring.flags |= DMLOG_FLAG_FILE_SEND;
         
         // Wait for monitor to clear the flag (indicating chunk was received)
-        volatile uint32_t timeout = 1000000; // Timeout to prevent infinite loop
+        volatile uint32_t timeout = DMLOG_FILE_SEND_TIMEOUT;
         while((ctx->ring.flags & DMLOG_FLAG_FILE_SEND) && timeout > 0)
         {
             timeout--;
@@ -1039,23 +1049,9 @@ bool dmlog_recvf(dmlog_ctx_t ctx, const char* file_path_fw, const char* file_pat
         return false;
     }
     
-    // Copy firmware file path to ring buffer
-    size_t path_len = strlen(file_path_fw);
-    if(path_len >= DMLOG_MAX_FILE_PATH)
-    {
-        path_len = DMLOG_MAX_FILE_PATH - 1;
-    }
-    memcpy((void*)ctx->ring.file_path, file_path_fw, path_len);
-    ((char*)ctx->ring.file_path)[path_len] = '\0';
-    
-    // Copy PC file path to ring buffer
-    path_len = strlen(file_path_pc);
-    if(path_len >= DMLOG_MAX_FILE_PATH)
-    {
-        path_len = DMLOG_MAX_FILE_PATH - 1;
-    }
-    memcpy((void*)ctx->ring.file_path_pc, file_path_pc, path_len);
-    ((char*)ctx->ring.file_path_pc)[path_len] = '\0';
+    // Copy file paths to ring buffer using helper function
+    copy_file_path(ctx->ring.file_path, file_path_fw);
+    copy_file_path(ctx->ring.file_path_pc, file_path_pc);
     
     // Store buffer address and size in ring
     ctx->ring.file_chunk_buffer = (uint64_t)((uintptr_t)chunk_buffer);
@@ -1073,7 +1069,7 @@ bool dmlog_recvf(dmlog_ctx_t ctx, const char* file_path_fw, const char* file_pat
     while(true)
     {
         // Wait for monitor to provide a chunk (clear the flag when chunk is ready)
-        volatile uint32_t timeout = 10000000; // Longer timeout for PC file operations
+        volatile uint32_t timeout = DMLOG_FILE_RECV_TIMEOUT;
         while((ctx->ring.flags & DMLOG_FLAG_FILE_RECV) && timeout > 0)
         {
             timeout--;

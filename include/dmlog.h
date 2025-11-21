@@ -25,6 +25,18 @@
 #define DMLOG_DEFAULT_CHUNK_SIZE   512
 #endif
 
+/* File transfer timeout values (in loop iterations) */
+#ifndef DMLOG_FILE_SEND_TIMEOUT
+#define DMLOG_FILE_SEND_TIMEOUT    1000000
+#endif
+
+#ifndef DMLOG_FILE_RECV_TIMEOUT
+#define DMLOG_FILE_RECV_TIMEOUT    10000000
+#endif
+
+/* Maximum file size for transfers (limited by uint32_t) */
+#define DMLOG_MAX_FILE_SIZE        0xFFFFFFFFU
+
 #ifndef DMLOG_PACKED
 #   define DMLOG_PACKED __attribute__((packed))
 #endif
