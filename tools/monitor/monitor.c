@@ -176,6 +176,7 @@ monitor_ctx_t *monitor_connect(backend_addr_t *addr, uint32_t ring_address, bool
 
     ctx->tail_offset = ctx->ring.tail_offset;
     ctx->input_file = NULL;  // No input file by default
+    ctx->init_script_mode = false;  // No init script mode by default
 
     TRACE_INFO("Connected to dmlog ring buffer at 0x%08X\n", ring_address);
     return ctx;
@@ -758,8 +759,21 @@ bool monitor_handle_input_request(monitor_ctx_t *ctx)
     {
         if(ctx->input_file)
         {
-            TRACE_ERROR("Failed to read input from input file (end of file or error)\n");
-            return false;
+            // If in init-script mode and we reach EOF, switch to stdin
+            if(ctx->init_script_mode)
+            {
+                TRACE_INFO("Init script completed, switching to stdin\n");
+                fclose(ctx->input_file);
+                ctx->input_file = NULL;
+                input_source = stdin;
+                // Try reading from stdin now
+                continue;
+            }
+            else
+            {
+                TRACE_ERROR("Failed to read input from input file (end of file or error)\n");
+                return false;
+            }
         }
     }
     configure_input_mode(true, true); // Restore terminal settings
