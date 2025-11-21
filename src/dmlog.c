@@ -913,7 +913,9 @@ bool dmlog_sendf(dmlog_ctx_t ctx, const char* file_path_fw, const char* file_pat
     transfer_info->chunk_buffer = (uint64_t)((uintptr_t)chunk_buffer);
     transfer_info->total_size = (uint32_t)file_size;
     strncpy((char*)transfer_info->file_path, file_path_fw, DMLOG_MAX_FILE_PATH - 1);
+    ((char*)transfer_info->file_path)[DMLOG_MAX_FILE_PATH - 1] = '\0';
     strncpy((char*)transfer_info->file_path_pc, file_path_pc, DMLOG_MAX_FILE_PATH - 1);
+    ((char*)transfer_info->file_path_pc)[DMLOG_MAX_FILE_PATH - 1] = '\0';
     
     // Store pointer to transfer info in ring buffer
     ctx->ring.file_transfer_info = (uint64_t)((uintptr_t)transfer_info);
@@ -1051,7 +1053,9 @@ bool dmlog_recvf(dmlog_ctx_t ctx, const char* file_path_fw, const char* file_pat
     transfer_info->chunk_number = 0;
     transfer_info->total_size = 0; // Unknown at start
     strncpy((char*)transfer_info->file_path, file_path_fw, DMLOG_MAX_FILE_PATH - 1);
+    ((char*)transfer_info->file_path)[DMLOG_MAX_FILE_PATH - 1] = '\0';
     strncpy((char*)transfer_info->file_path_pc, file_path_pc, DMLOG_MAX_FILE_PATH - 1);
+    ((char*)transfer_info->file_path_pc)[DMLOG_MAX_FILE_PATH - 1] = '\0';
     
     // Store pointer to transfer info in ring buffer
     ctx->ring.file_transfer_info = (uint64_t)((uintptr_t)transfer_info);
