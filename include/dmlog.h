@@ -27,11 +27,11 @@
 
 /* File transfer timeout values (in loop iterations) */
 #ifndef DMLOG_FILE_SEND_TIMEOUT
-#define DMLOG_FILE_SEND_TIMEOUT    1000000
+#define DMLOG_FILE_SEND_TIMEOUT    3000000  // 3M iterations with delay loops
 #endif
 
 #ifndef DMLOG_FILE_RECV_TIMEOUT
-#define DMLOG_FILE_RECV_TIMEOUT    10000000
+#define DMLOG_FILE_RECV_TIMEOUT    3000000  // 3M iterations with delay loops
 #endif
 
 /* Maximum file size for transfers (limited by uint32_t) */

@@ -950,16 +950,17 @@ bool dmlog_sendf(dmlog_ctx_t ctx, const char* file_path_fw, const char* file_pat
         Dmod_ExitCritical();
         
         // Wait for monitor to clear the flag (indicating chunk was received)
+        // Timeout is in iterations with delay to allow monitor processing time
         volatile uint32_t timeout = DMLOG_FILE_SEND_TIMEOUT;
         while((ctx->ring.flags & DMLOG_FLAG_FILE_SEND) && timeout > 0)
         {
             timeout--;
-            // Yield CPU periodically to give monitor time to process
-            if((timeout % 10000) == 0)
+            // Small delay to give monitor time to process
+            // This prevents tight busy-wait and allows monitor to access memory
+            volatile uint32_t delay = 0;
+            for(uint32_t i = 0; i < 1000; i++) 
             {
-                // Just a simple yield by doing nothing for a moment
-                volatile int yield = 0;
-                for(int i = 0; i < 100; i++) yield++;
+                delay = i;  // Prevents optimization
             }
         }
         
@@ -1094,16 +1095,17 @@ bool dmlog_recvf(dmlog_ctx_t ctx, const char* file_path_fw, const char* file_pat
     while(true)
     {
         // Wait for monitor to provide a chunk (clear the flag when chunk is ready)
+        // Timeout is in iterations with delay to allow monitor processing time
         volatile uint32_t timeout = DMLOG_FILE_RECV_TIMEOUT;
         while((ctx->ring.flags & DMLOG_FLAG_FILE_RECV) && timeout > 0)
         {
             timeout--;
-            // Yield CPU periodically to give monitor time to process
-            if((timeout % 10000) == 0)
+            // Small delay to give monitor time to process
+            // This prevents tight busy-wait and allows monitor to access memory
+            volatile uint32_t delay = 0;
+            for(uint32_t i = 0; i < 1000; i++) 
             {
-                // Just a simple yield by doing nothing for a moment
-                volatile int yield = 0;
-                for(int i = 0; i < 100; i++) yield++;
+                delay = i;  // Prevents optimization
             }
         }
         
