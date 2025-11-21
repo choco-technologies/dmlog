@@ -788,7 +788,10 @@ bool monitor_handle_input_request(monitor_ctx_t *ctx)
                 {
                     // Normal input file mode - exit on EOF
                     TRACE_ERROR("Input file ended\n");
-                    fclose(ctx->input_file);
+                    if(fclose(ctx->input_file) != 0)
+                    {
+                        TRACE_WARN("Failed to close input file\n");
+                    }
                     ctx->input_file = NULL;
                     configure_input_mode(true, true); // Restore terminal settings
                     return false;
@@ -798,24 +801,27 @@ bool monitor_handle_input_request(monitor_ctx_t *ctx)
             {
                 // I/O error on input file
                 TRACE_ERROR("Failed to read from input file (I/O error)\n");
-                fclose(ctx->input_file);
+                if(fclose(ctx->input_file) != 0)
+                {
+                    TRACE_WARN("Failed to close input file\n");
+                }
                 ctx->input_file = NULL;
                 configure_input_mode(true, true); // Restore terminal settings
                 return false;
             }
         }
-        // Reading from stdin failed - check if EOF or error
-        else if(feof(stdin) || ferror(stdin))
+        // Reading from stdin failed - check if error first, then EOF
+        else if(ferror(stdin))
         {
-            // stdin reached EOF or I/O error
-            if(ferror(stdin))
-            {
-                TRACE_ERROR("stdin I/O error, exiting\n");
-            }
-            else
-            {
-                TRACE_INFO("stdin reached EOF, exiting\n");
-            }
+            // stdin I/O error
+            TRACE_ERROR("stdin I/O error, exiting\n");
+            configure_input_mode(true, true); // Restore terminal settings
+            return false;
+        }
+        else if(feof(stdin))
+        {
+            // stdin reached EOF
+            TRACE_INFO("stdin reached EOF, exiting\n");
             configure_input_mode(true, true); // Restore terminal settings
             return false;
         }
