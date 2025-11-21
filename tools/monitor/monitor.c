@@ -710,6 +710,13 @@ void monitor_run(monitor_ctx_t *ctx, bool show_timestamps, bool blocking_mode)
             // Check for input request from firmware (after printing all output)
             monitor_handle_input_request(ctx);
             
+            // Update ring buffer to get latest flags before checking for file transfers
+            if(!monitor_update_ring(ctx))
+            {
+                TRACE_ERROR("Failed to update ring buffer before file transfer check\n");
+                return;
+            }
+            
             // Check for file transfer requests
             monitor_handle_file_send(ctx);
             monitor_handle_file_recv(ctx);
@@ -763,6 +770,13 @@ void monitor_run(monitor_ctx_t *ctx, bool show_timestamps, bool blocking_mode)
             if(!monitor_handle_input_request(ctx))
             {
                 return; // exit on EOF
+            }
+            
+            // Update ring buffer to get latest flags before checking for file transfers
+            if(!monitor_update_ring(ctx))
+            {
+                TRACE_ERROR("Failed to update ring buffer before file transfer check\n");
+                return;
             }
             
             // Check for file transfer requests
