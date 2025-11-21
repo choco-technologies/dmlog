@@ -20,6 +20,8 @@ typedef struct
     backend_type_t      backend_type;
     FILE*               input_file;  // Optional input file for automated testing
     bool                init_script_mode;  // If true, switch to stdin after input_file EOF
+    FILE*               file_send_handle;  // File handle for ongoing send operations (PC to FW)
+    uint32_t            file_send_chunk_number;  // Track which chunk we're on for send operations
 } monitor_ctx_t;
 
 monitor_ctx_t* monitor_connect(backend_addr_t *addr, uint32_t ring_address, bool snapshot_mode);

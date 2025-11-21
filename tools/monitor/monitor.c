@@ -177,6 +177,8 @@ monitor_ctx_t *monitor_connect(backend_addr_t *addr, uint32_t ring_address, bool
     ctx->tail_offset = ctx->ring.tail_offset;
     ctx->input_file = NULL;  // No input file by default
     ctx->init_script_mode = false;  // No init script mode by default
+    ctx->file_send_handle = NULL;  // No file send in progress
+    ctx->file_send_chunk_number = 0;
 
     TRACE_INFO("Connected to dmlog ring buffer at 0x%08X\n", ring_address);
     return ctx;
@@ -194,6 +196,10 @@ void monitor_disconnect(monitor_ctx_t *ctx)
         if(ctx->input_file)
         {
             fclose(ctx->input_file);
+        }
+        if(ctx->file_send_handle)
+        {
+            fclose(ctx->file_send_handle);
         }
         backend_disconnect(ctx->backend_type, ctx->socket);
         free(ctx);
@@ -510,16 +516,16 @@ bool monitor_handle_file_recv(monitor_ctx_t *ctx)
                transfer_info.file_path_pc, transfer_info.file_path,
                transfer_info.chunk_number, transfer_info.chunk_size);
     
-    // Open the file on PC side
-    static FILE* send_file = NULL;
-    if(transfer_info.chunk_number == 0)
+    // Open the file on PC side (first chunk or if not open)
+    if(transfer_info.chunk_number == 0 || transfer_info.chunk_number != ctx->file_send_chunk_number)
     {
-        if(send_file)
+        if(ctx->file_send_handle)
         {
-            fclose(send_file);
+            fclose(ctx->file_send_handle);
+            ctx->file_send_handle = NULL;
         }
-        send_file = fopen((const char*)transfer_info.file_path_pc, "rb");
-        if(!send_file)
+        ctx->file_send_handle = fopen((const char*)transfer_info.file_path_pc, "rb");
+        if(!ctx->file_send_handle)
         {
             TRACE_ERROR("Failed to open file: %s\n", transfer_info.file_path_pc);
             // Signal EOF by setting chunk_size to 0
@@ -529,11 +535,13 @@ bool monitor_handle_file_recv(monitor_ctx_t *ctx)
             {
                 TRACE_ERROR("Failed to write transfer info\n");
             }
+            ctx->file_send_chunk_number = 0;
             return false;
         }
+        ctx->file_send_chunk_number = transfer_info.chunk_number;
     }
     
-    if(!send_file)
+    if(!ctx->file_send_handle)
     {
         TRACE_ERROR("File not open for sending\n");
         return false;
@@ -547,7 +555,7 @@ bool monitor_handle_file_recv(monitor_ctx_t *ctx)
         return false;
     }
     
-    size_t bytes_read = fread(chunk_buffer, 1, transfer_info.chunk_size, send_file);
+    size_t bytes_read = fread(chunk_buffer, 1, transfer_info.chunk_size, ctx->file_send_handle);
     
     if(bytes_read > 0)
     {
@@ -557,25 +565,27 @@ bool monitor_handle_file_recv(monitor_ctx_t *ctx)
         {
             TRACE_ERROR("Failed to write chunk to firmware\n");
             free(chunk_buffer);
-            fclose(send_file);
-            send_file = NULL;
+            fclose(ctx->file_send_handle);
+            ctx->file_send_handle = NULL;
+            ctx->file_send_chunk_number = 0;
             return false;
         }
         
         // Update chunk size and number in the transfer info
         transfer_info.chunk_size = (uint32_t)bytes_read;
-        transfer_info.chunk_number++;
+        ctx->file_send_chunk_number = transfer_info.chunk_number + 1;
         
         TRACE_VERBOSE("Chunk %u sent successfully (%zu bytes)\n", 
-                      transfer_info.chunk_number - 1, bytes_read);
+                      transfer_info.chunk_number, bytes_read);
     }
     
-    // Check for EOF
-    if(bytes_read < transfer_info.chunk_size || feof(send_file))
+    // Check for EOF - use feof() for accurate detection
+    if(feof(ctx->file_send_handle) || bytes_read == 0)
     {
         TRACE_INFO("File transfer complete\n");
-        fclose(send_file);
-        send_file = NULL;
+        fclose(ctx->file_send_handle);
+        ctx->file_send_handle = NULL;
+        ctx->file_send_chunk_number = 0;
         
         // Signal EOF by setting chunk_size to 0 after writing last chunk
         if(bytes_read > 0)
