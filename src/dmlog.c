@@ -826,6 +826,196 @@ void dmlog_input_request(dmlog_ctx_t ctx, dmlog_input_request_flags_t flags)
     Dmod_ExitCritical();
 }
 
+/**
+ * @brief Send a file from the target to the host.
+ * 
+ * @param ctx DMLoG context.
+ * @param src_file_path Path to the source file on the target.
+ * @param dst_file_path Path to the destination file on the host.
+ * @return true on success, false on failure.
+ */
+bool dmlog_file_send(dmlog_ctx_t ctx, const char* src_file_path, const char* dst_file_path)
+{
+    if(!dmlog_is_valid(ctx) || src_file_path == NULL || dst_file_path == NULL)
+    {
+        return false;
+    }
+
+    dmlog_file_transfer_t transfer;
+    memset(&transfer, 0, sizeof(transfer));
+    strncpy(transfer.host_file_name, dst_file_path, sizeof(transfer.host_file_name) - 1);
+    transfer.chunk_size = DMLOG_FILE_TRANSFER_CHUNK_SIZE;
+    void* buffer = Dmod_Malloc(transfer.chunk_size);
+    if(buffer == NULL)
+    {
+        return false;
+    }
+
+    transfer.buffer_address = (uint64_t)(uintptr_t)buffer;
+    transfer.offset = 0;
+    
+    void* file = Dmod_FileOpen(src_file_path, "rb");
+    if(file == NULL)
+    {
+        Dmod_Free(buffer);
+        return false;
+    }
+
+    transfer.total_size = Dmod_FileSize(file);
+    
+    bool result = true;
+    for(transfer.offset = 0; result && transfer.offset < transfer.total_size; )
+    {
+        uint32_t left_bytes = transfer.total_size - transfer.offset;
+        transfer.chunk_size = (left_bytes < DMLOG_FILE_TRANSFER_CHUNK_SIZE) ? left_bytes : DMLOG_FILE_TRANSFER_CHUNK_SIZE;
+        uint32_t read_bytes = Dmod_FileRead(buffer, 1, transfer.chunk_size, file);
+        if(read_bytes != transfer.chunk_size)
+        {
+            DMOD_LOG_ERROR("Cannot read file: %s\n", src_file_path);
+            result = false;
+            break;
+        }
+        bool chunk_sent = false;
+        uint32_t retry_count = 0;
+        while(!chunk_sent)
+        {
+            context_lock(ctx);
+            ctx->ring.file_transfer = (uint64_t)(uintptr_t)&transfer;
+            ctx->ring.flags |= DMLOG_FLAG_FILE_SEND_REQ;
+            context_unlock(ctx);
+
+            volatile uint64_t timeout = 10000;
+            while(((ctx->ring.flags & DMLOG_FLAG_FILE_SEND_REQ) != 0) && timeout > 0)
+            {
+                timeout--;
+            }
+            chunk_sent = (ctx->ring.flags & DMLOG_FLAG_FILE_SEND_REQ) == 0;
+            if(!chunk_sent && retry_count > 1000)
+            {
+                DMOD_LOG_ERROR("File transfer timeout: %s\n", src_file_path);
+                result = false;
+                break;
+            }
+            retry_count++;
+        }
+        
+        transfer.offset += transfer.chunk_size;
+    }
+
+    context_lock(ctx);
+    ctx->ring.file_transfer = 0;
+    ctx->ring.flags &= ~DMLOG_FLAG_FILE_SEND_REQ;
+    context_unlock(ctx);
+
+    Dmod_Free(buffer);
+    Dmod_FileClose(file);
+
+    return result;
+}
+
+/**
+ * @brief Receive a file from the host to the target.
+ * 
+ * @param ctx DMLoG context.
+ * @param src_file_path Path to the source file on the host.
+ * @param dst_file_path Path to the destination file on the target.
+ * @return true on success, false on failure.
+ */
+bool dmlog_file_receive(dmlog_ctx_t ctx, const char* src_file_path, const char* dst_file_path)
+{
+    if(!dmlog_is_valid(ctx) || src_file_path == NULL || dst_file_path == NULL)
+    {
+        return false;
+    }
+    dmlog_file_transfer_t transfer;
+    if(strlen(dst_file_path) >= sizeof(transfer.host_file_name))
+    {
+        DMOD_LOG_ERROR("Destination file path too long: %s\n", dst_file_path);
+        return false;
+    }
+
+    memset(&transfer, 0, sizeof(transfer));
+    strncpy(transfer.host_file_name, src_file_path, sizeof(transfer.host_file_name) - 1);
+    transfer.chunk_size = DMLOG_FILE_TRANSFER_CHUNK_SIZE;
+    void* buffer = Dmod_Malloc(transfer.chunk_size);
+    if(buffer == NULL)
+    {
+        return false;
+    }
+
+    transfer.buffer_address = (uint64_t)(uintptr_t)buffer;
+    transfer.offset = 0;
+    
+    void* file = Dmod_FileOpen(src_file_path, "wb");
+    if(file == NULL)
+    {
+        Dmod_Free(buffer);
+        return false;
+    }
+
+    transfer.total_size = 0; // Will be set by the host
+    
+    bool result = true;
+    for(transfer.offset = 0; result && transfer.offset < transfer.total_size || transfer.total_size == 0; )
+    {
+        transfer.chunk_size = DMLOG_FILE_TRANSFER_CHUNK_SIZE;
+        bool chunk_received = false;
+        uint32_t retry_count = 0;
+        while(!chunk_received)
+        {
+            context_lock(ctx);
+            ctx->ring.file_transfer = (uint64_t)(uintptr_t)&transfer;
+            ctx->ring.flags |= DMLOG_FLAG_FILE_RECV_REQ;
+            context_unlock(ctx);
+
+            volatile uint64_t timeout = 10000;
+            while(((ctx->ring.flags & DMLOG_FLAG_FILE_RECV_REQ) != 0) && timeout > 0)
+            {
+                timeout--;
+            }
+            chunk_received = (ctx->ring.flags & DMLOG_FLAG_FILE_RECV_REQ) == 0;
+            if(!chunk_received && retry_count > 1000)
+            {
+                DMOD_LOG_ERROR("File receive timeout: %s\n", dst_file_path);
+                result = false;
+                break;
+            }
+            retry_count++;
+        }
+
+        if(transfer.total_size == 0)
+        {
+            DMOD_LOG_ERROR("Cannot receive file - total file size was not set\n");
+            result = false;
+            break;
+        }
+        if(transfer.chunk_size == 0)
+        {
+            DMOD_LOG_ERROR("Cannot receive file - chunk size was set to 0\n");
+            result = false;
+            break;
+        }
+        size_t written_bytes = Dmod_FileWrite(buffer, 1, transfer.chunk_size, file);
+        if(written_bytes != transfer.chunk_size)
+        {
+            DMOD_LOG_ERROR("Cannot receive file - cannot write data to %s\n", dst_file_path);
+            result = false;
+            break;
+        }
+        transfer.offset += transfer.chunk_size;
+    }
+
+    context_lock(ctx);
+    ctx->ring.file_transfer = 0;
+    ctx->ring.flags &= ~DMLOG_FLAG_FILE_RECV_REQ;
+    context_unlock(ctx);
+
+    Dmod_Free(buffer);
+    Dmod_FileClose(file);
+
+    return result;
+}
+
 #ifndef DMLOG_DONT_IMPLEMENT_DMOD_API
 /**
  * @brief Built-in printf function for DMLoG.

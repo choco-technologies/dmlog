@@ -15,6 +15,14 @@
 #define DMOD_LOG_MAX_ENTRY_SIZE    500
 #endif
 
+#ifndef DMLOG_FILE_CHUNK_SIZE
+#   define DMLOG_FILE_TRANSFER_CHUNK_SIZE  512
+#endif
+
+#ifndef DMLOG_MAX_FILE_PATH_LENGTH
+#   define DMLOG_MAX_FILE_PATH_LENGTH 255
+#endif
+
 #ifndef DMLOG_PACKED
 #   define DMLOG_PACKED __attribute__((packed))
 #endif
@@ -26,6 +34,9 @@
 #define DMLOG_FLAG_INPUT_REQUESTED  0x00000008  /* Firmware requests input from user */
 #define DMLOG_FLAG_INPUT_ECHO_OFF   0x00000010  /* Disable echoing of input characters */
 #define DMLOG_FLAG_INPUT_LINE_MODE  0x00000020  /* Input line mode (vs. character mode) */
+#define DMLOG_FLAG_FILE_SEND_REQ    0x00000040  /* FW requests sending a file to the host */
+#define DMLOG_FLAG_FILE_RECV_REQ    0x00000080  /* FW requests receiving a file from the host */
+#define DMLOG_FLAG_FILE_CHUNK_ACK   0x00000100  /* ACK flag set by host to acknowledge processing of the chunk */
 
 /**
  * @brief Input request flags
@@ -41,6 +52,20 @@ typedef enum
 
 /* Type definition for log entry indices */
 typedef uint32_t dmlog_index_t;
+
+/**
+ * @brief File transfer information structure
+ * 
+ * Used for file transfer requests between firmware and host.
+ */
+typedef struct 
+{
+    volatile uint64_t buffer_address;                               //!< Pointer to file data buffer
+    volatile uint32_t chunk_size;                                   //!< Size of each file chunk
+    volatile uint32_t total_size;                                   //!< Total size of the file
+    volatile uint32_t offset;                                       //!< Current offset in the file
+    char host_file_name[DMLOG_MAX_FILE_PATH_LENGTH];   //!< File name on the host (source or destination)
+} dmlog_file_transfer_t;
 
 /**
  * @brief Ring buffer control structure
@@ -73,6 +98,7 @@ typedef struct
     volatile dmlog_index_t      input_tail_offset;
     volatile dmlog_index_t      input_buffer_size;
     volatile uint64_t           input_buffer;
+    volatile uint64_t           file_transfer; /* dmlog_file_transfer_t structure address */
 } DMLOG_PACKED dmlog_ring_t;
 
 typedef struct dmlog_ctx* dmlog_ctx_t;
@@ -102,5 +128,9 @@ DMOD_BUILTIN_API(dmlog, 1.0, char,             _input_getc,        (dmlog_ctx_t 
 DMOD_BUILTIN_API(dmlog, 1.0, bool,             _input_gets,        (dmlog_ctx_t ctx, char* s, size_t max_len) );
 DMOD_BUILTIN_API(dmlog, 1.0, dmlog_index_t,    _input_get_free_space, (dmlog_ctx_t ctx) );
 DMOD_BUILTIN_API(dmlog, 1.0, void,             _input_request,     (dmlog_ctx_t ctx, dmlog_input_request_flags_t flags) );
+
+/* File transfer API */
+DMOD_BUILTIN_API(dmlog, 1.0, bool,             _file_send,         (dmlog_ctx_t ctx, const char* src_file_path, const char* dst_file_path) );
+DMOD_BUILTIN_API(dmlog, 1.0, bool,             _file_receive,      (dmlog_ctx_t ctx, const char* src_file_path, const char* dst_file_path) );
 
 #endif // DMLOG_H
