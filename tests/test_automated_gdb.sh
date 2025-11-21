@@ -75,22 +75,32 @@ prepare_test_files() {
     # Check if scenario has file send operations and prepare test files
     if grep -q "<send_file:" "$scenario_file"; then
         # Create test files that will be sent from firmware
-        grep "<send_file:" "$scenario_file" | while IFS=: read -r _ fw_path rest; do
-            fw_path=$(echo "$fw_path" | sed 's/>//')
-            echo "Test file content from firmware" > "$fw_path"
-            echo "This file was created for file transfer testing" >> "$fw_path"
-            echo "Line 3 of test content" >> "$fw_path"
+        # Extract paths using sed to handle the format <send_file:fw_path:pc_path>
+        grep "<send_file:" "$scenario_file" | while read -r line; do
+            # Extract fw_path (between first : and second :)
+            fw_path=$(echo "$line" | sed 's/<send_file:\([^:]*\):.*/\1/')
+            
+            if [ -n "$fw_path" ]; then
+                echo "Test file content from firmware" > "$fw_path"
+                echo "This file was created for file transfer testing" >> "$fw_path"
+                echo "Line 3 of test content" >> "$fw_path"
+            fi
         done
     fi
     
     # Check if scenario has file receive operations and prepare test files
     if grep -q "<recv_file:" "$scenario_file"; then
         # Create test files that will be received from PC
-        grep "<recv_file:" "$scenario_file" | while IFS=: read -r _ _ pc_path; do
-            pc_path=$(echo "$pc_path" | sed 's/>//')
-            echo "Test file content from PC" > "$pc_path"
-            echo "This file was created on PC for transfer to firmware" >> "$pc_path"
-            echo "Line 3 of PC test content" >> "$pc_path"
+        # Extract PC path (between second : and >)
+        grep "<recv_file:" "$scenario_file" | while read -r line; do
+            # Extract pc_path (between second : and >)
+            pc_path=$(echo "$line" | sed 's/<recv_file:[^:]*:\([^>]*\)>.*/\1/')
+            
+            if [ -n "$pc_path" ]; then
+                echo "Test file content from PC" > "$pc_path"
+                echo "This file was created on PC for transfer to firmware" >> "$pc_path"
+                echo "Line 3 of PC test content" >> "$pc_path"
+            fi
         done
     fi
 }
@@ -126,20 +136,22 @@ run_test() {
             next 
         }
         /<send_file:/ {
-            print "Sending file: " $0
-            gsub(/.*<send_file:/, "")
-            gsub(/:/, " -> ")
-            gsub(/>.*/, "")
-            print $0
+            # Extract paths from <send_file:fw_path:pc_path>
+            line_content = $0
+            gsub(/.*<send_file:/, "", line_content)
+            gsub(/>.*/, "", line_content)
+            split(line_content, paths, ":")
+            print "Sending file: " paths[1] " -> " paths[2]
             print "File sent successfully"
             next
         }
         /<recv_file:/ {
-            print "Receiving file: " $0
-            gsub(/.*<recv_file:/, "")
-            gsub(/:/, " <- ")
-            gsub(/>.*/, "")
-            print $0
+            # Extract paths from <recv_file:fw_path:pc_path>
+            line_content = $0
+            gsub(/.*<recv_file:/, "", line_content)
+            gsub(/>.*/, "", line_content)
+            split(line_content, paths, ":")
+            print "Receiving file: " paths[1] " <- " paths[2]
             print "File received successfully"
             next
         }
