@@ -27,6 +27,7 @@ void usage(const char *progname)
     printf("  --snapshot    Enable snapshot mode to reduce target reads\n");
     printf("  --gdb         Use GDB backend instead of OpenOCD\n");
     printf("  --input-file  File to read input from for automated testing\n");
+    printf("  --init-script File to read as initialization script, then switch to stdin\n");
 }
 
 int main(int argc, char *argv[])
@@ -35,6 +36,7 @@ int main(int argc, char *argv[])
     bool blocking_mode = false;
     bool snapshot_mode = false;
     const char *input_file_path = NULL;
+    bool init_script_mode = false;
     uint32_t ring_buffer_address = 0x20010000; // Default address
     backend_addr_t backend_addr;
     const backend_addr_t* default_addr = backend_default_addrs[BACKEND_TYPE_OPENOCD];
@@ -110,6 +112,11 @@ int main(int argc, char *argv[])
         {
             input_file_path = argv[++i];
         }
+        else if(strcmp(argv[i], "--init-script") == 0 && i + 1 < argc)
+        {
+            input_file_path = argv[++i];
+            init_script_mode = true;
+        }
         else if(strcmp(argv[i], "--gdb") == 0)
         {
             const backend_addr_t* gdb_default = backend_default_addrs[BACKEND_TYPE_GDB];
@@ -160,7 +167,15 @@ int main(int argc, char *argv[])
             monitor_disconnect(ctx);
             return 1;
         }
-        TRACE_INFO("Using input file: %s\n", input_file_path);
+        ctx->init_script_mode = init_script_mode;
+        if(init_script_mode)
+        {
+            TRACE_INFO("Using init script: %s (will switch to stdin after completion)\n", input_file_path);
+        }
+        else
+        {
+            TRACE_INFO("Using input file: %s\n", input_file_path);
+        }
     }
 
     monitor_run(ctx, show_timestamps, blocking_mode);

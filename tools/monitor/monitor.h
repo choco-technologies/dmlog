@@ -19,6 +19,7 @@ typedef struct
     time_t              last_update_time;
     backend_type_t      backend_type;
     FILE*               input_file;  // Optional input file for automated testing
+    bool                init_script_mode;  // If true, switch to stdin after input_file EOF
 } monitor_ctx_t;
 
 monitor_ctx_t* monitor_connect(backend_addr_t *addr, uint32_t ring_address, bool snapshot_mode);

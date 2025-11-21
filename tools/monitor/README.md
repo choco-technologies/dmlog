@@ -49,15 +49,20 @@ This connects to OpenOCD at `localhost:4444` and monitors the ring buffer at the
 
 ### Command-Line Options
 
-- `--host HOST` - OpenOCD host (default: localhost)
-- `--port PORT` - OpenOCD telnet port (default: 4444)
-- `--addr ADDRESS` - Ring buffer address in hex (default: 0x20000000)
-- `--size SIZE` - Total buffer size in bytes (default: 4096)
-- `--max-entry SIZE` - Maximum entry size in bytes (default: 512)
-- `--interval SECONDS` - Polling interval in seconds (default: 0.1)
-- `--max-startup N` - Maximum old entries to show on startup (default: 100)
-- `--debug` - Enable debug logging
 - `--help` - Show help message
+- `--version` - Show version information
+- `--host HOST` - Backend IP address (default: localhost)
+- `--port PORT` - Backend port (default: 4444)
+- `--addr ADDRESS` - Ring buffer address in hex (default: 0x20010000)
+- `--search` - Search for the ring buffer in memory
+- `--trace-level LEVEL` - Set trace level (error, warn, info, verbose)
+- `--verbose` - Enable verbose output (equivalent to --trace-level verbose)
+- `--time` - Show timestamps with log entries
+- `--blocking` - Use blocking mode for reading log entries
+- `--snapshot` - Enable snapshot mode to reduce target reads
+- `--gdb` - Use GDB backend instead of OpenOCD
+- `--input-file FILE` - File to read input from for automated testing (exits when file ends)
+- `--init-script FILE` - File to read as initialization script, then switch to stdin for interactive use
 
 ## Example
 
@@ -79,6 +84,32 @@ The tool will:
 3. Continuously monitor for new log entries
 4. Display new entries in real-time
 5. Exit gracefully on Ctrl+C
+
+### Using Init Scripts
+
+You can provide an initialization script that will be executed when the firmware requests input, and then the monitor will switch to reading from stdin for interactive use:
+
+```bash
+# Create an init script
+cat > init.txt << EOF
+setup command 1
+setup command 2
+configure option A
+EOF
+
+# Start monitor with init script
+./dmlog_monitor --init-script init.txt --addr 0x20000000
+```
+
+This is useful for:
+- Automatically configuring the firmware on startup
+- Running setup commands before interactive use
+- Pre-loading data or settings into the firmware
+
+The monitor will:
+1. Read commands from the init script file when firmware requests input
+2. After the init script completes (EOF), switch to reading from stdin
+3. Continue running interactively, allowing manual input
 
 ## Implementation Details
 

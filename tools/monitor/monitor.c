@@ -176,6 +176,7 @@ monitor_ctx_t *monitor_connect(backend_addr_t *addr, uint32_t ring_address, bool
 
     ctx->tail_offset = ctx->ring.tail_offset;
     ctx->input_file = NULL;  // No input file by default
+    ctx->init_script_mode = false;  // No init script mode by default
 
     TRACE_INFO("Connected to dmlog ring buffer at 0x%08X\n", ring_address);
     return ctx;
@@ -749,18 +750,83 @@ bool monitor_handle_input_request(monitor_ctx_t *ctx)
 
     // Read input from file or stdin (no prompt, firmware should print its own prompt)
     char input_buffer[512];
-    FILE* input_source = ctx->input_file ? ctx->input_file : stdin;
     bool echo_on = (ctx->ring.flags & DMLOG_FLAG_INPUT_ECHO_OFF) == 0;
     bool line_mode = (ctx->ring.flags & DMLOG_FLAG_INPUT_LINE_MODE) != 0;
     
     configure_input_mode(echo_on, line_mode);
-    while(fgets(input_buffer, sizeof(input_buffer), input_source) == NULL)
+    
+    // Read input, potentially switching from init script to stdin
+    while(true)
     {
+        FILE* input_source = ctx->input_file ? ctx->input_file : stdin;
+        if(fgets(input_buffer, sizeof(input_buffer), input_source) != NULL)
+        {
+            // Successfully read input
+            break;
+        }
+        
+        // Failed to read - check why
         if(ctx->input_file)
         {
-            TRACE_ERROR("Failed to read input from input file (end of file or error)\n");
+            // Reading from input file failed - check if EOF or error
+            if(feof(ctx->input_file))
+            {
+                // Reached EOF on input file
+                if(ctx->init_script_mode)
+                {
+                    // Init script completed - switch to stdin
+                    TRACE_INFO("Init script completed, switching to stdin\n");
+                    if(fclose(ctx->input_file) != 0)
+                    {
+                        TRACE_WARN("Failed to close init script file\n");
+                    }
+                    ctx->input_file = NULL;
+                    // Loop will retry with stdin
+                    continue;
+                }
+                else
+                {
+                    // Normal input file mode - exit on EOF
+                    TRACE_ERROR("Input file ended\n");
+                    if(fclose(ctx->input_file) != 0)
+                    {
+                        TRACE_WARN("Failed to close input file\n");
+                    }
+                    ctx->input_file = NULL;
+                    configure_input_mode(true, true); // Restore terminal settings
+                    return false;
+                }
+            }
+            else
+            {
+                // I/O error on input file
+                TRACE_ERROR("Failed to read from input file (I/O error)\n");
+                if(fclose(ctx->input_file) != 0)
+                {
+                    TRACE_WARN("Failed to close input file\n");
+                }
+                ctx->input_file = NULL;
+                configure_input_mode(true, true); // Restore terminal settings
+                return false;
+            }
+        }
+        // Reading from stdin failed - check if error first, then EOF
+        else if(ferror(stdin))
+        {
+            // stdin I/O error
+            TRACE_ERROR("stdin I/O error, exiting\n");
+            configure_input_mode(true, true); // Restore terminal settings
             return false;
         }
+        else if(feof(stdin))
+        {
+            // stdin reached EOF
+            TRACE_INFO("stdin reached EOF, exiting\n");
+            configure_input_mode(true, true); // Restore terminal settings
+            return false;
+        }
+        // Other error - this should not happen in normal blocking mode
+        // Continue trying to read
     }
     configure_input_mode(true, true); // Restore terminal settings
 
@@ -783,5 +849,18 @@ bool monitor_handle_input_request(monitor_ctx_t *ctx)
     // Update local cache
     ctx->ring.flags = new_flags;
 
-    return feof(input_source) == 0;
+    // Return true to continue monitoring, false to exit
+    // Exit conditions:
+    // 1. Using --input-file (not init-script) and file has ended
+    // 2. stdin EOF was handled above (returns false immediately)
+    // Continue monitoring in all other cases:
+    // - Using --init-script (ctx->input_file may be NULL after switching to stdin)
+    // - Reading from stdin directly (no input file specified)
+    if(ctx->input_file && !ctx->init_script_mode)
+    {
+        // Using --input-file: exit if file has ended
+        return !feof(ctx->input_file);
+    }
+    // Continue monitoring
+    return true;
 }
