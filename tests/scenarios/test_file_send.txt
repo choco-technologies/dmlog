@@ -1,5 +1,6 @@
 # Test scenario: Send file from firmware to PC
 # This tests the file transfer output path (FW → PC)
+# Note: File paths should not contain colons (:) as they are used as delimiters
 
 Starting file send test
 Creating test file on firmware side
