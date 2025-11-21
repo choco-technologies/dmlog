@@ -10,6 +10,8 @@
  * Input file format:
  * - Regular lines are logged to dmlog (one line = one log entry)
  * - Special marker "<user_input>" triggers reading from dmlog input
+ * - Special marker "<send_file:fw_path:pc_path>" sends file from FW to PC
+ * - Special marker "<recv_file:fw_path:pc_path>" receives file from PC to FW
  * - Lines starting with "#" are comments and ignored
  * 
  * Arguments:
@@ -49,6 +51,8 @@ void print_usage(const char *progname) {
     fprintf(stderr, "Input file format:\n");
     fprintf(stderr, "  - Regular lines are logged to dmlog\n");
     fprintf(stderr, "  - '<user_input>' marker triggers reading from dmlog input\n");
+    fprintf(stderr, "  - '<send_file:fw_path:pc_path>' sends file from FW to PC\n");
+    fprintf(stderr, "  - '<recv_file:fw_path:pc_path>' receives file from PC to FW\n");
     fprintf(stderr, "  - Lines starting with '#' are comments\n");
 }
 
@@ -126,7 +130,7 @@ int main(int argc, char *argv[]) {
             continue;
         }
 
-        // Check for special marker
+        // Check for special markers
         if (strcmp(line, "<user_input>") == 0) {
             printf("[Line %d] Requesting user input...\n", line_num);
             
@@ -164,6 +168,56 @@ int main(int argc, char *argv[]) {
                     printf("[Line %d] Warning: Failed to read input\n", line_num);
                     dmlog_puts(g_dmlog_ctx, "ERROR: Failed to read input\n");
                 }
+            }
+        } else if (strncmp(line, "<send_file:", 11) == 0) {
+            // Parse: <send_file:fw_path:pc_path>
+            char fw_path[256], pc_path[256];
+            if (sscanf(line, "<send_file:%255[^:]:%255[^>]>", fw_path, pc_path) == 2) {
+                printf("[Line %d] Sending file: %s -> %s\n", line_num, fw_path, pc_path);
+                dmlog_puts(g_dmlog_ctx, "Sending file: ");
+                dmlog_puts(g_dmlog_ctx, fw_path);
+                dmlog_puts(g_dmlog_ctx, " -> ");
+                dmlog_puts(g_dmlog_ctx, pc_path);
+                dmlog_puts(g_dmlog_ctx, "\n");
+                dmlog_flush(g_dmlog_ctx);
+                
+                bool result = dmlog_sendf(g_dmlog_ctx, fw_path, pc_path, 0);
+                
+                if (result) {
+                    printf("[Line %d] File sent successfully\n", line_num);
+                    dmlog_puts(g_dmlog_ctx, "File sent successfully\n");
+                } else {
+                    printf("[Line %d] File send failed\n", line_num);
+                    dmlog_puts(g_dmlog_ctx, "File send FAILED\n");
+                }
+            } else {
+                printf("[Line %d] Error: Invalid send_file format\n", line_num);
+                dmlog_puts(g_dmlog_ctx, "ERROR: Invalid send_file format\n");
+            }
+        } else if (strncmp(line, "<recv_file:", 11) == 0) {
+            // Parse: <recv_file:fw_path:pc_path>
+            char fw_path[256], pc_path[256];
+            if (sscanf(line, "<recv_file:%255[^:]:%255[^>]>", fw_path, pc_path) == 2) {
+                printf("[Line %d] Receiving file: %s <- %s\n", line_num, fw_path, pc_path);
+                dmlog_puts(g_dmlog_ctx, "Receiving file: ");
+                dmlog_puts(g_dmlog_ctx, fw_path);
+                dmlog_puts(g_dmlog_ctx, " <- ");
+                dmlog_puts(g_dmlog_ctx, pc_path);
+                dmlog_puts(g_dmlog_ctx, "\n");
+                dmlog_flush(g_dmlog_ctx);
+                
+                bool result = dmlog_recvf(g_dmlog_ctx, fw_path, pc_path, 0);
+                
+                if (result) {
+                    printf("[Line %d] File received successfully\n", line_num);
+                    dmlog_puts(g_dmlog_ctx, "File received successfully\n");
+                } else {
+                    printf("[Line %d] File receive failed\n", line_num);
+                    dmlog_puts(g_dmlog_ctx, "File receive FAILED\n");
+                }
+            } else {
+                printf("[Line %d] Error: Invalid recv_file format\n", line_num);
+                dmlog_puts(g_dmlog_ctx, "ERROR: Invalid recv_file format\n");
             }
         } else {
             // Regular log line - add newline back

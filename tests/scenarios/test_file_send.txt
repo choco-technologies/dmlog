@@ -1,0 +1,7 @@
+# Test scenario: Send file from firmware to PC
+# This tests the file transfer output path (FW → PC)
+
+Starting file send test
+Creating test file on firmware side
+<send_file:/tmp/test_fw_file.txt:/tmp/test_pc_received.txt>
+File send test completed successfully

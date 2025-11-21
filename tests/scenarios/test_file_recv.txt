@@ -1,0 +1,7 @@
+# Test scenario: Receive file from PC to firmware
+# This tests the file transfer input path (PC → FW)
+
+Starting file receive test
+Requesting file from PC
+<recv_file:/tmp/test_fw_received.txt:/tmp/test_pc_file.txt>
+File receive test completed successfully

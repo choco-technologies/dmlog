@@ -68,6 +68,33 @@ cleanup() {
     fi
 }
 
+# Prepare test files for file transfer tests
+prepare_test_files() {
+    local scenario_file=$1
+    
+    # Check if scenario has file send operations and prepare test files
+    if grep -q "<send_file:" "$scenario_file"; then
+        # Create test files that will be sent from firmware
+        grep "<send_file:" "$scenario_file" | while IFS=: read -r _ fw_path rest; do
+            fw_path=$(echo "$fw_path" | sed 's/>//')
+            echo "Test file content from firmware" > "$fw_path"
+            echo "This file was created for file transfer testing" >> "$fw_path"
+            echo "Line 3 of test content" >> "$fw_path"
+        done
+    fi
+    
+    # Check if scenario has file receive operations and prepare test files
+    if grep -q "<recv_file:" "$scenario_file"; then
+        # Create test files that will be received from PC
+        grep "<recv_file:" "$scenario_file" | while IFS=: read -r _ _ pc_path; do
+            pc_path=$(echo "$pc_path" | sed 's/>//')
+            echo "Test file content from PC" > "$pc_path"
+            echo "This file was created on PC for transfer to firmware" >> "$pc_path"
+            echo "Line 3 of PC test content" >> "$pc_path"
+        done
+    fi
+}
+
 # Run a single test scenario
 run_test() {
     local scenario_file=$1
@@ -86,14 +113,35 @@ run_test() {
     local expected_output="/tmp/dmlog_test_${scenario_name}_expected.txt"
     local input_data="/tmp/dmlog_test_${scenario_name}_input.txt"
     
+    # Prepare test files for file transfers
+    prepare_test_files "$scenario_file"
+    
     # Generate expected output from scenario file
-    # Skip comments and convert <user_input> to expected echo
+    # Skip comments and convert special markers to expected output
     awk '
         /^#/ { next }
         /^$/ { next }
         /<user_input>/ { 
             print "Received: Test input line " ++input_count
             next 
+        }
+        /<send_file:/ {
+            print "Sending file: " $0
+            gsub(/.*<send_file:/, "")
+            gsub(/:/, " -> ")
+            gsub(/>.*/, "")
+            print $0
+            print "File sent successfully"
+            next
+        }
+        /<recv_file:/ {
+            print "Receiving file: " $0
+            gsub(/.*<recv_file:/, "")
+            gsub(/:/, " <- ")
+            gsub(/>.*/, "")
+            print $0
+            print "File received successfully"
+            next
         }
         { print }
     ' "$scenario_file" > "$expected_output"
@@ -239,6 +287,21 @@ fi
 # Test 4: Complex mixed
 if [ -f "$SCENARIOS_DIR/test_mixed_complex.txt" ]; then
     run_test "$SCENARIOS_DIR/test_mixed_complex.txt" 2048
+fi
+
+# Test 5: File send (FW → PC)
+if [ -f "$SCENARIOS_DIR/test_file_send.txt" ]; then
+    run_test "$SCENARIOS_DIR/test_file_send.txt" 4096
+fi
+
+# Test 6: File receive (PC → FW)
+if [ -f "$SCENARIOS_DIR/test_file_recv.txt" ]; then
+    run_test "$SCENARIOS_DIR/test_file_recv.txt" 4096
+fi
+
+# Test 7: Bidirectional file transfer
+if [ -f "$SCENARIOS_DIR/test_file_bidirectional.txt" ]; then
+    run_test "$SCENARIOS_DIR/test_file_bidirectional.txt" 4096
 fi
 
 # Print final summary

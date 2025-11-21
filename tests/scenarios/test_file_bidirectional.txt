@@ -1,0 +1,9 @@
+# Test scenario: Bidirectional file transfer
+# This tests both send and receive in one scenario
+
+Starting bidirectional file transfer test
+First, sending a file to PC
+<send_file:/tmp/test_fw_send.txt:/tmp/test_pc_send_received.txt>
+Send completed, now receiving a file from PC
+<recv_file:/tmp/test_fw_recv_received.txt:/tmp/test_pc_recv.txt>
+Bidirectional file transfer test completed successfully
