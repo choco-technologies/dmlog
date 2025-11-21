@@ -404,6 +404,259 @@ bool monitor_load_snapshot(monitor_ctx_t *ctx, bool blocking_mode)
 }
 
 /**
+ * @brief Handle file send operation (firmware to PC)
+ * 
+ * @param ctx Pointer to the monitor context
+ * @return true on success, false on failure
+ */
+bool monitor_handle_file_send(monitor_ctx_t *ctx)
+{
+    if(!(ctx->ring.flags & DMLOG_FLAG_FILE_SEND))
+    {
+        return true; // Nothing to do
+    }
+    
+    TRACE_INFO("File send operation detected\n");
+    
+    // Read the file transfer info structure from firmware memory
+    dmlog_file_transfer_t transfer_info;
+    if(backend_read_memory(ctx->backend_type, ctx->socket, ctx->ring.file_transfer_info, 
+                          &transfer_info, sizeof(dmlog_file_transfer_t)) < 0)
+    {
+        TRACE_ERROR("Failed to read file transfer info structure\n");
+        return false;
+    }
+    
+    TRACE_INFO("Receiving file: %s -> %s (chunk %u, size %u, total %u)\n",
+               transfer_info.file_path, transfer_info.file_path_pc,
+               transfer_info.chunk_number, transfer_info.chunk_size, transfer_info.total_size);
+    
+    // Read chunk data from firmware memory
+    void* chunk_buffer = malloc(transfer_info.chunk_size);
+    if(!chunk_buffer)
+    {
+        TRACE_ERROR("Failed to allocate chunk buffer\n");
+        return false;
+    }
+    
+    if(backend_read_memory(ctx->backend_type, ctx->socket, transfer_info.chunk_buffer,
+                          chunk_buffer, transfer_info.chunk_size) < 0)
+    {
+        TRACE_ERROR("Failed to read chunk data\n");
+        free(chunk_buffer);
+        return false;
+    }
+    
+    // Open or create the file on PC side
+    FILE* file = fopen((const char*)transfer_info.file_path_pc, 
+                      transfer_info.chunk_number == 0 ? "wb" : "ab");
+    if(!file)
+    {
+        TRACE_ERROR("Failed to open file: %s\n", transfer_info.file_path_pc);
+        free(chunk_buffer);
+        return false;
+    }
+    
+    // Write chunk to file
+    size_t written = fwrite(chunk_buffer, 1, transfer_info.chunk_size, file);
+    fclose(file);
+    free(chunk_buffer);
+    
+    if(written != transfer_info.chunk_size)
+    {
+        TRACE_ERROR("Failed to write chunk to file\n");
+        return false;
+    }
+    
+    TRACE_VERBOSE("Chunk %u written successfully (%u bytes)\n", 
+                  transfer_info.chunk_number, transfer_info.chunk_size);
+    
+    // Clear the flag to signal firmware that chunk was received
+    uint32_t flags = ctx->ring.flags & ~DMLOG_FLAG_FILE_SEND;
+    if(!monitor_write_flags(ctx, flags))
+    {
+        TRACE_ERROR("Failed to clear file send flag\n");
+        return false;
+    }
+    
+    return true;
+}
+
+/**
+ * @brief Handle file receive operation (PC to firmware)
+ * 
+ * @param ctx Pointer to the monitor context
+ * @return true on success, false on failure
+ */
+bool monitor_handle_file_recv(monitor_ctx_t *ctx)
+{
+    if(!(ctx->ring.flags & DMLOG_FLAG_FILE_RECV))
+    {
+        return true; // Nothing to do
+    }
+    
+    TRACE_INFO("File receive operation detected\n");
+    
+    // Read the file transfer info structure from firmware memory
+    dmlog_file_transfer_t transfer_info;
+    if(backend_read_memory(ctx->backend_type, ctx->socket, ctx->ring.file_transfer_info,
+                          &transfer_info, sizeof(dmlog_file_transfer_t)) < 0)
+    {
+        TRACE_ERROR("Failed to read file transfer info structure\n");
+        return false;
+    }
+    
+    TRACE_INFO("Sending file: %s -> %s (chunk %u, buffer size %u)\n",
+               transfer_info.file_path_pc, transfer_info.file_path,
+               transfer_info.chunk_number, transfer_info.chunk_size);
+    
+    // Open the file on PC side
+    static FILE* send_file = NULL;
+    if(transfer_info.chunk_number == 0)
+    {
+        if(send_file)
+        {
+            fclose(send_file);
+        }
+        send_file = fopen((const char*)transfer_info.file_path_pc, "rb");
+        if(!send_file)
+        {
+            TRACE_ERROR("Failed to open file: %s\n", transfer_info.file_path_pc);
+            // Signal EOF by setting chunk_size to 0
+            transfer_info.chunk_size = 0;
+            if(backend_write_memory(ctx->backend_type, ctx->socket, ctx->ring.file_transfer_info,
+                                   &transfer_info, sizeof(dmlog_file_transfer_t)) < 0)
+            {
+                TRACE_ERROR("Failed to write transfer info\n");
+            }
+            return false;
+        }
+    }
+    
+    if(!send_file)
+    {
+        TRACE_ERROR("File not open for sending\n");
+        return false;
+    }
+    
+    // Read chunk from file
+    void* chunk_buffer = malloc(transfer_info.chunk_size);
+    if(!chunk_buffer)
+    {
+        TRACE_ERROR("Failed to allocate chunk buffer\n");
+        return false;
+    }
+    
+    size_t bytes_read = fread(chunk_buffer, 1, transfer_info.chunk_size, send_file);
+    
+    if(bytes_read > 0)
+    {
+        // Write chunk to firmware memory
+        if(backend_write_memory(ctx->backend_type, ctx->socket, transfer_info.chunk_buffer,
+                               chunk_buffer, bytes_read) < 0)
+        {
+            TRACE_ERROR("Failed to write chunk to firmware\n");
+            free(chunk_buffer);
+            fclose(send_file);
+            send_file = NULL;
+            return false;
+        }
+        
+        // Update chunk size and number in the transfer info
+        transfer_info.chunk_size = (uint32_t)bytes_read;
+        transfer_info.chunk_number++;
+        
+        TRACE_VERBOSE("Chunk %u sent successfully (%zu bytes)\n", 
+                      transfer_info.chunk_number - 1, bytes_read);
+    }
+    
+    // Check for EOF
+    if(bytes_read < transfer_info.chunk_size || feof(send_file))
+    {
+        TRACE_INFO("File transfer complete\n");
+        fclose(send_file);
+        send_file = NULL;
+        
+        // Signal EOF by setting chunk_size to 0 after writing last chunk
+        if(bytes_read > 0)
+        {
+            // First write the last chunk info
+            if(backend_write_memory(ctx->backend_type, ctx->socket, ctx->ring.file_transfer_info,
+                                   &transfer_info, sizeof(dmlog_file_transfer_t)) < 0)
+            {
+                TRACE_ERROR("Failed to write transfer info\n");
+                free(chunk_buffer);
+                return false;
+            }
+            
+            // Clear flag so firmware processes this chunk
+            uint32_t flags = ctx->ring.flags & ~DMLOG_FLAG_FILE_RECV;
+            if(!monitor_write_flags(ctx, flags))
+            {
+                TRACE_ERROR("Failed to clear file recv flag\n");
+                free(chunk_buffer);
+                return false;
+            }
+            
+            // Wait for firmware to process and set flag again
+            int retries = 100;
+            while(retries-- > 0)
+            {
+                usleep(10000);
+                if(!monitor_update_ring(ctx))
+                {
+                    free(chunk_buffer);
+                    return false;
+                }
+                if(ctx->ring.flags & DMLOG_FLAG_FILE_RECV)
+                {
+                    break;
+                }
+            }
+            
+            if(retries <= 0)
+            {
+                TRACE_ERROR("Timeout waiting for firmware to request next chunk\n");
+                free(chunk_buffer);
+                return false;
+            }
+            
+            // Now read transfer info again and set EOF marker
+            if(backend_read_memory(ctx->backend_type, ctx->socket, ctx->ring.file_transfer_info,
+                                  &transfer_info, sizeof(dmlog_file_transfer_t)) < 0)
+            {
+                TRACE_ERROR("Failed to read transfer info\n");
+                free(chunk_buffer);
+                return false;
+            }
+        }
+        
+        transfer_info.chunk_size = 0; // EOF marker
+    }
+    
+    // Write updated transfer info back to firmware
+    if(backend_write_memory(ctx->backend_type, ctx->socket, ctx->ring.file_transfer_info,
+                           &transfer_info, sizeof(dmlog_file_transfer_t)) < 0)
+    {
+        TRACE_ERROR("Failed to write transfer info\n");
+        free(chunk_buffer);
+        return false;
+    }
+    
+    free(chunk_buffer);
+    
+    // Clear the flag to signal firmware that chunk is ready
+    uint32_t flags = ctx->ring.flags & ~DMLOG_FLAG_FILE_RECV;
+    if(!monitor_write_flags(ctx, flags))
+    {
+        TRACE_ERROR("Failed to clear file recv flag\n");
+        return false;
+    }
+    
+    return true;
+}
+
+/**
  * @brief Run the monitor loop (not implemented)
  * 
  * @param ctx Pointer to the monitor context
@@ -439,6 +692,10 @@ void monitor_run(monitor_ctx_t *ctx, bool show_timestamps, bool blocking_mode)
             
             // Check for input request from firmware (after printing all output)
             monitor_handle_input_request(ctx);
+            
+            // Check for file transfer requests
+            monitor_handle_file_send(ctx);
+            monitor_handle_file_recv(ctx);
             
             usleep(300000); 
         }
@@ -490,6 +747,10 @@ void monitor_run(monitor_ctx_t *ctx, bool show_timestamps, bool blocking_mode)
             {
                 return; // exit on EOF
             }
+            
+            // Check for file transfer requests
+            monitor_handle_file_send(ctx);
+            monitor_handle_file_recv(ctx);
 
             usleep(100000); // Sleep briefly to allow data to accumulate
         }

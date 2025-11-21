@@ -945,12 +945,27 @@ bool dmlog_sendf(dmlog_ctx_t ctx, const char* file_path_fw, const char* file_pat
         // Set file send flag to signal monitor
         ctx->ring.flags |= DMLOG_FLAG_FILE_SEND;
         
+        // Unlock context to allow monitor to access ring buffer
+        context_unlock(ctx);
+        Dmod_ExitCritical();
+        
         // Wait for monitor to clear the flag (indicating chunk was received)
         volatile uint32_t timeout = DMLOG_FILE_SEND_TIMEOUT;
         while((ctx->ring.flags & DMLOG_FLAG_FILE_SEND) && timeout > 0)
         {
             timeout--;
+            // Yield CPU periodically to give monitor time to process
+            if((timeout % 10000) == 0)
+            {
+                // Just a simple yield by doing nothing for a moment
+                volatile int yield = 0;
+                for(int i = 0; i < 100; i++) yield++;
+            }
         }
+        
+        // Re-lock context for next iteration
+        Dmod_EnterCritical();
+        context_lock(ctx);
         
         if(timeout == 0)
         {
@@ -1063,6 +1078,10 @@ bool dmlog_recvf(dmlog_ctx_t ctx, const char* file_path_fw, const char* file_pat
     // Set file receive flag to signal monitor
     ctx->ring.flags |= DMLOG_FLAG_FILE_RECV;
     
+    // Unlock context to allow monitor to access ring buffer
+    context_unlock(ctx);
+    Dmod_ExitCritical();
+    
     // Receive file in chunks
     uint32_t expected_chunk = 0;
     result = true;
@@ -1074,6 +1093,13 @@ bool dmlog_recvf(dmlog_ctx_t ctx, const char* file_path_fw, const char* file_pat
         while((ctx->ring.flags & DMLOG_FLAG_FILE_RECV) && timeout > 0)
         {
             timeout--;
+            // Yield CPU periodically to give monitor time to process
+            if((timeout % 10000) == 0)
+            {
+                // Just a simple yield by doing nothing for a moment
+                volatile int yield = 0;
+                for(int i = 0; i < 100; i++) yield++;
+            }
         }
         
         if(timeout == 0)
@@ -1109,6 +1135,10 @@ bool dmlog_recvf(dmlog_ctx_t ctx, const char* file_path_fw, const char* file_pat
         // Signal that we're ready for next chunk
         ctx->ring.flags |= DMLOG_FLAG_FILE_RECV;
     }
+    
+    // Re-lock context for cleanup
+    Dmod_EnterCritical();
+    context_lock(ctx);
     
     // Clean up
     Dmod_FileClose(file);

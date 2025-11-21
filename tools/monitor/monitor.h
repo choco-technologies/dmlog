@@ -38,5 +38,7 @@ bool monitor_send_not_busy_command(monitor_ctx_t *ctx);
 bool monitor_synchronize(monitor_ctx_t *ctx);
 bool monitor_send_input(monitor_ctx_t *ctx, const char* input, size_t length);
 bool monitor_handle_input_request(monitor_ctx_t *ctx);
+bool monitor_handle_file_send(monitor_ctx_t *ctx);
+bool monitor_handle_file_recv(monitor_ctx_t *ctx);
 
 #endif // MONITOR_H

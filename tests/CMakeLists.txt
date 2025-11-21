@@ -113,6 +113,28 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     target_link_options(test_app_interactive PRIVATE -no-pie)
 endif()
 
+# =====================================================================
+#               Test: File Transfer End-to-End Test
+# =====================================================================
+add_executable(test_file_transfer_e2e test_file_transfer_e2e.c dmod_test_stubs.c)
+target_link_libraries(test_file_transfer_e2e 
+    PRIVATE 
+        dmlog
+        dmod_system
+        dmod_common
+        dmod_fastlz
+        dmod_inc
+)
+target_include_directories(test_file_transfer_e2e
+    PRIVATE
+        ${CMAKE_SOURCE_DIR}/include
+)
+# Disable PIE for predictable addresses for gdbserver testing
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(test_file_transfer_e2e PRIVATE -fno-pie)
+    target_link_options(test_file_transfer_e2e PRIVATE -no-pie)
+endif()
+
 add_test(NAME dmlog_unit        COMMAND test_dmlog_unit)
 add_test(NAME simple_test       COMMAND test_simple)
 add_test(NAME benchmark         COMMAND test_benchmark)
