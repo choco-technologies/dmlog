@@ -424,6 +424,8 @@ bool monitor_load_snapshot(monitor_ctx_t *ctx, bool blocking_mode)
  */
 bool monitor_handle_file_send(monitor_ctx_t *ctx)
 {
+    TRACE_VERBOSE("Checking for FILE_SEND flag: flags=0x%08X\n", ctx->ring.flags);
+    
     if(!(ctx->ring.flags & DMLOG_FLAG_FILE_SEND))
     {
         return true; // Nothing to do
@@ -503,6 +505,8 @@ bool monitor_handle_file_send(monitor_ctx_t *ctx)
  */
 bool monitor_handle_file_recv(monitor_ctx_t *ctx)
 {
+    TRACE_VERBOSE("Checking for FILE_RECV flag: flags=0x%08X\n", ctx->ring.flags);
+    
     if(!(ctx->ring.flags & DMLOG_FLAG_FILE_RECV))
     {
         return true; // Nothing to do
@@ -1037,7 +1041,7 @@ bool monitor_handle_input_request(monitor_ctx_t *ctx)
     // Check if firmware requested input
     if(!(ctx->ring.flags & DMLOG_FLAG_INPUT_REQUESTED))
     {
-        return false;
+        return true; // No input requested, nothing to do
     }
 
     // Read input from file or stdin (no prompt, firmware should print its own prompt)
