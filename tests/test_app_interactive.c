@@ -126,8 +126,76 @@ int main(int argc, char *argv[]) {
             continue;
         }
 
+        // Check for file send marker: <file_send:src_path:dst_path>
+        if (strncmp(line, "<file_send:", 11) == 0) {
+            // Parse: <file_send:src_path:dst_path>
+            char *src_path = line + 11;
+            char *dst_path = strchr(src_path, ':');
+            if (dst_path) {
+                *dst_path = '\0';
+                dst_path++;
+                // Remove trailing '>' if present
+                size_t dst_len = strlen(dst_path);
+                if (dst_len > 0 && dst_path[dst_len-1] == '>') {
+                    dst_path[dst_len-1] = '\0';
+                }
+                
+                printf("[Line %d] Sending file: %s -> %s\n", line_num, src_path, dst_path);
+                dmlog_puts(g_dmlog_ctx, "Sending file: ");
+                dmlog_puts(g_dmlog_ctx, src_path);
+                dmlog_puts(g_dmlog_ctx, " -> ");
+                dmlog_puts(g_dmlog_ctx, dst_path);
+                dmlog_puts(g_dmlog_ctx, "\n");
+                dmlog_flush(g_dmlog_ctx);
+                
+                if (dmlog_file_send(g_dmlog_ctx, src_path, dst_path)) {
+                    printf("[Line %d] File send successful\n", line_num);
+                    dmlog_puts(g_dmlog_ctx, "File send successful\n");
+                } else {
+                    printf("[Line %d] File send failed\n", line_num);
+                    dmlog_puts(g_dmlog_ctx, "File send failed\n");
+                }
+            } else {
+                printf("[Line %d] Error: Invalid file_send syntax\n", line_num);
+                dmlog_puts(g_dmlog_ctx, "ERROR: Invalid file_send syntax\n");
+            }
+        }
+        // Check for file receive marker: <file_recv:src_path:dst_path>
+        else if (strncmp(line, "<file_recv:", 11) == 0) {
+            // Parse: <file_recv:src_path:dst_path>
+            char *src_path = line + 11;
+            char *dst_path = strchr(src_path, ':');
+            if (dst_path) {
+                *dst_path = '\0';
+                dst_path++;
+                // Remove trailing '>' if present
+                size_t dst_len = strlen(dst_path);
+                if (dst_len > 0 && dst_path[dst_len-1] == '>') {
+                    dst_path[dst_len-1] = '\0';
+                }
+                
+                printf("[Line %d] Receiving file: %s -> %s\n", line_num, src_path, dst_path);
+                dmlog_puts(g_dmlog_ctx, "Receiving file: ");
+                dmlog_puts(g_dmlog_ctx, src_path);
+                dmlog_puts(g_dmlog_ctx, " -> ");
+                dmlog_puts(g_dmlog_ctx, dst_path);
+                dmlog_puts(g_dmlog_ctx, "\n");
+                dmlog_flush(g_dmlog_ctx);
+                
+                if (dmlog_file_receive(g_dmlog_ctx, src_path, dst_path)) {
+                    printf("[Line %d] File receive successful\n", line_num);
+                    dmlog_puts(g_dmlog_ctx, "File receive successful\n");
+                } else {
+                    printf("[Line %d] File receive failed\n", line_num);
+                    dmlog_puts(g_dmlog_ctx, "File receive failed\n");
+                }
+            } else {
+                printf("[Line %d] Error: Invalid file_recv syntax\n", line_num);
+                dmlog_puts(g_dmlog_ctx, "ERROR: Invalid file_recv syntax\n");
+            }
+        }
         // Check for special marker
-        if (strcmp(line, "<user_input>") == 0) {
+        else if (strcmp(line, "<user_input>") == 0) {
             printf("[Line %d] Requesting user input...\n", line_num);
             
             // Request input from dmlog

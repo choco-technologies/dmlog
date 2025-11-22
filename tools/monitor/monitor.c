@@ -294,6 +294,12 @@ bool monitor_wait_for_new_data(monitor_ctx_t *ctx)
             TRACE_VERBOSE("Input requested (flags=0x%08X), returning from wait\n", ctx->ring.flags);
             return true;
         }
+        // Check if firmware requested file transfer - return early to handle it
+        if(ctx->ring.flags & (DMLOG_FLAG_FILE_SEND_REQ | DMLOG_FLAG_FILE_RECV_REQ))
+        {
+            TRACE_VERBOSE("File transfer requested (flags=0x%08X), returning from wait\n", ctx->ring.flags);
+            return true;
+        }
         empty = is_buffer_empty(ctx);
     }
     TRACE_VERBOSE("New data available, returning from wait\n");
@@ -437,6 +443,10 @@ void monitor_run(monitor_ctx_t *ctx, bool show_timestamps, bool blocking_mode)
                 fflush(stdout);  // Ensure output is written immediately
             }
             
+            // Check for file transfer requests from firmware
+            monitor_handle_file_send_request(ctx);
+            monitor_handle_file_recv_request(ctx);
+            
             // Check for input request from firmware (after printing all output)
             monitor_handle_input_request(ctx);
             
@@ -484,6 +494,10 @@ void monitor_run(monitor_ctx_t *ctx, bool show_timestamps, bool blocking_mode)
                 }
                 fflush(stdout);  // Ensure output is written immediately
             }
+            
+            // Check for file transfer requests from firmware
+            monitor_handle_file_send_request(ctx);
+            monitor_handle_file_recv_request(ctx);
             
             // Check for input request from firmware (after printing all output)
             if(!monitor_handle_input_request(ctx))
@@ -862,5 +876,247 @@ bool monitor_handle_input_request(monitor_ctx_t *ctx)
         return !feof(ctx->input_file);
     }
     // Continue monitoring
+    return true;
+}
+
+/**
+ * @brief Handle file send request from firmware (FW → Host)
+ * 
+ * Protocol:
+ * 1. Firmware sets DMLOG_FLAG_FILE_SEND_REQ and populates file_transfer structure
+ * 2. Monitor reads transfer structure to get buffer address, file name, chunk size, etc.
+ * 3. Monitor reads data chunk from firmware buffer
+ * 4. Monitor writes chunk to host file
+ * 5. Monitor clears DMLOG_FLAG_FILE_SEND_REQ to acknowledge
+ * 
+ * @param ctx Pointer to the monitor context
+ * @return true if file transfer handled successfully, false otherwise
+ */
+bool monitor_handle_file_send_request(monitor_ctx_t *ctx)
+{
+    // Check if firmware requested file send
+    if(!(ctx->ring.flags & DMLOG_FLAG_FILE_SEND_REQ))
+    {
+        return false;
+    }
+
+    TRACE_INFO("File send request detected\n");
+
+    // Read file_transfer structure address from ring
+    uint64_t transfer_addr = ctx->ring.file_transfer;
+    if(transfer_addr == 0)
+    {
+        TRACE_ERROR("File transfer address is NULL\n");
+        return false;
+    }
+
+    // Read the file_transfer structure from target
+    dmlog_file_transfer_t transfer;
+    if(backend_read_memory(ctx->backend_type, ctx->socket, (uint32_t)transfer_addr, &transfer, sizeof(transfer)) < 0)
+    {
+        TRACE_ERROR("Failed to read file_transfer structure from target\n");
+        return false;
+    }
+
+    TRACE_INFO("File transfer: host_file=%s, chunk_size=%u, total_size=%u, offset=%u, buffer_addr=0x%llx\n",
+               transfer.host_file_name, transfer.chunk_size, transfer.total_size, 
+               transfer.offset, (unsigned long long)transfer.buffer_address);
+
+    // Allocate buffer for chunk data
+    void* chunk_buffer = malloc(transfer.chunk_size);
+    if(chunk_buffer == NULL)
+    {
+        TRACE_ERROR("Failed to allocate chunk buffer of size %u\n", transfer.chunk_size);
+        return false;
+    }
+
+    // Read chunk data from firmware buffer
+    if(backend_read_memory(ctx->backend_type, ctx->socket, (uint32_t)transfer.buffer_address, 
+                          chunk_buffer, transfer.chunk_size) < 0)
+    {
+        TRACE_ERROR("Failed to read chunk data from firmware buffer\n");
+        free(chunk_buffer);
+        return false;
+    }
+
+    // Open/create host file (append mode if offset > 0, write mode if offset == 0)
+    FILE* file = fopen(transfer.host_file_name, transfer.offset == 0 ? "wb" : "ab");
+    if(file == NULL)
+    {
+        TRACE_ERROR("Failed to open host file: %s\n", transfer.host_file_name);
+        free(chunk_buffer);
+        return false;
+    }
+
+    // Write chunk to file
+    size_t written = fwrite(chunk_buffer, 1, transfer.chunk_size, file);
+    fclose(file);
+    free(chunk_buffer);
+
+    if(written != transfer.chunk_size)
+    {
+        TRACE_ERROR("Failed to write chunk to file (wrote %zu/%u bytes)\n", written, transfer.chunk_size);
+        return false;
+    }
+
+    TRACE_VERBOSE("Wrote %u bytes to %s at offset %u\n", transfer.chunk_size, 
+                 transfer.host_file_name, transfer.offset);
+
+    // Clear FILE_SEND_REQ flag to acknowledge
+    uint32_t new_flags = ctx->ring.flags & ~DMLOG_FLAG_FILE_SEND_REQ;
+    if(backend_write_memory(ctx->backend_type, ctx->socket, 
+                           ctx->ring_address + offsetof(dmlog_ring_t, flags), 
+                           &new_flags, sizeof(uint32_t)) < 0)
+    {
+        TRACE_ERROR("Failed to clear FILE_SEND_REQ flag\n");
+        return false;
+    }
+
+    // Update local cache
+    ctx->ring.flags = new_flags;
+
+    // Check if this was the last chunk
+    if(transfer.offset + transfer.chunk_size >= transfer.total_size)
+    {
+        TRACE_INFO("File transfer complete: %s (%u bytes)\n", 
+                  transfer.host_file_name, transfer.total_size);
+    }
+
+    return true;
+}
+
+/**
+ * @brief Handle file receive request from firmware (Host → FW)
+ * 
+ * Protocol:
+ * 1. Firmware sets DMLOG_FLAG_FILE_RECV_REQ and populates file_transfer structure
+ * 2. Monitor reads transfer structure to get buffer address, file name, etc.
+ * 3. Monitor reads data from host file
+ * 4. Monitor writes data to firmware buffer
+ * 5. Monitor updates total_size and chunk_size in transfer structure
+ * 6. Monitor clears DMLOG_FLAG_FILE_RECV_REQ to acknowledge
+ * 
+ * @param ctx Pointer to the monitor context
+ * @return true if file transfer handled successfully, false otherwise
+ */
+bool monitor_handle_file_recv_request(monitor_ctx_t *ctx)
+{
+    // Check if firmware requested file receive
+    if(!(ctx->ring.flags & DMLOG_FLAG_FILE_RECV_REQ))
+    {
+        return false;
+    }
+
+    TRACE_INFO("File receive request detected\n");
+
+    // Read file_transfer structure address from ring
+    uint64_t transfer_addr = ctx->ring.file_transfer;
+    if(transfer_addr == 0)
+    {
+        TRACE_ERROR("File transfer address is NULL\n");
+        return false;
+    }
+
+    // Read the file_transfer structure from target
+    dmlog_file_transfer_t transfer;
+    if(backend_read_memory(ctx->backend_type, ctx->socket, (uint32_t)transfer_addr, &transfer, sizeof(transfer)) < 0)
+    {
+        TRACE_ERROR("Failed to read file_transfer structure from target\n");
+        return false;
+    }
+
+    TRACE_INFO("File receive: host_file=%s, chunk_size=%u, total_size=%u, offset=%u, buffer_addr=0x%llx\n",
+               transfer.host_file_name, transfer.chunk_size, transfer.total_size, 
+               transfer.offset, (unsigned long long)transfer.buffer_address);
+
+    // Open host file for reading (on first chunk, get file size)
+    FILE* file = fopen(transfer.host_file_name, "rb");
+    if(file == NULL)
+    {
+        TRACE_ERROR("Failed to open host file for reading: %s\n", transfer.host_file_name);
+        return false;
+    }
+
+    // Get file size if this is the first chunk
+    if(transfer.offset == 0)
+    {
+        fseek(file, 0, SEEK_END);
+        transfer.total_size = ftell(file);
+        fseek(file, 0, SEEK_SET);
+        TRACE_INFO("Host file size: %u bytes\n", transfer.total_size);
+    }
+
+    // Seek to current offset
+    fseek(file, transfer.offset, SEEK_SET);
+
+    // Calculate how much to read for this chunk
+    uint32_t remaining = transfer.total_size - transfer.offset;
+    uint32_t chunk_to_read = (remaining < DMLOG_FILE_TRANSFER_CHUNK_SIZE) ? remaining : DMLOG_FILE_TRANSFER_CHUNK_SIZE;
+    
+    // Allocate buffer for chunk data
+    void* chunk_buffer = malloc(chunk_to_read);
+    if(chunk_buffer == NULL)
+    {
+        TRACE_ERROR("Failed to allocate chunk buffer of size %u\n", chunk_to_read);
+        fclose(file);
+        return false;
+    }
+
+    // Read chunk from file
+    size_t bytes_read = fread(chunk_buffer, 1, chunk_to_read, file);
+    fclose(file);
+
+    if(bytes_read != chunk_to_read)
+    {
+        TRACE_ERROR("Failed to read chunk from file (read %zu/%u bytes)\n", bytes_read, chunk_to_read);
+        free(chunk_buffer);
+        return false;
+    }
+
+    // Write chunk data to firmware buffer
+    if(backend_write_memory(ctx->backend_type, ctx->socket, (uint32_t)transfer.buffer_address, 
+                           chunk_buffer, chunk_to_read) < 0)
+    {
+        TRACE_ERROR("Failed to write chunk data to firmware buffer\n");
+        free(chunk_buffer);
+        return false;
+    }
+
+    free(chunk_buffer);
+
+    TRACE_VERBOSE("Read %u bytes from %s and wrote to firmware buffer\n", 
+                 chunk_to_read, transfer.host_file_name);
+
+    // Update transfer structure with actual chunk size and total size
+    transfer.chunk_size = chunk_to_read;
+    
+    // Write back the updated transfer structure
+    if(backend_write_memory(ctx->backend_type, ctx->socket, (uint32_t)transfer_addr, 
+                           &transfer, sizeof(transfer)) < 0)
+    {
+        TRACE_ERROR("Failed to write updated transfer structure\n");
+        return false;
+    }
+
+    // Clear FILE_RECV_REQ flag to acknowledge
+    uint32_t new_flags = ctx->ring.flags & ~DMLOG_FLAG_FILE_RECV_REQ;
+    if(backend_write_memory(ctx->backend_type, ctx->socket, 
+                           ctx->ring_address + offsetof(dmlog_ring_t, flags), 
+                           &new_flags, sizeof(uint32_t)) < 0)
+    {
+        TRACE_ERROR("Failed to clear FILE_RECV_REQ flag\n");
+        return false;
+    }
+
+    // Update local cache
+    ctx->ring.flags = new_flags;
+
+    // Check if this was the last chunk
+    if(transfer.offset + chunk_to_read >= transfer.total_size)
+    {
+        TRACE_INFO("File transfer complete: %s (%u bytes)\n", 
+                  transfer.host_file_name, transfer.total_size);
+    }
+
     return true;
 }
