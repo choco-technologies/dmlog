@@ -77,6 +77,22 @@ int main(int argc, char *argv[]) {
     printf("=== dmlog Interactive Test Application ===\n");
     printf("Input file: %s\n", input_file);
     printf("Buffer size: %zu bytes\n", buffer_size);
+    
+    // Pre-create test files that might be needed for file_send operations
+    // These are created in the firmware's filesystem context
+    FILE* test_file = fopen("/tmp/test_source.txt", "w");
+    if (test_file) {
+        fprintf(test_file, "Test file: This is a test file for dmlog file transfer\n");
+        fprintf(test_file, "Line 2 of test file\n");
+        fprintf(test_file, "Line 3 - final line\n");
+        fclose(test_file);
+    }
+    
+    test_file = fopen("/tmp/test_fw_file.txt", "w");
+    if (test_file) {
+        fprintf(test_file, "Another test file from firmware\n");
+        fclose(test_file);
+    }
 
     // Validate buffer size
     if (buffer_size > MAX_BUFFER_SIZE) {

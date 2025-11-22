@@ -281,6 +281,16 @@ bool monitor_wait_for_new_data(monitor_ctx_t *ctx)
     bool empty = is_buffer_empty(ctx);
     while(empty)
     {
+        // For GDB backend, briefly resume target to let it execute
+        // This is needed for file transfers and input requests which require target execution
+        if(ctx->backend_type == BACKEND_TYPE_GDB)
+        {
+            if(gdb_resume_briefly(ctx->socket) < 0)
+            {
+                TRACE_WARN("Failed to resume target briefly\n");
+            }
+        }
+        
         usleep(10000);
         if(!monitor_update_ring(ctx))
         {
@@ -460,6 +470,11 @@ void monitor_run(monitor_ctx_t *ctx, bool show_timestamps, bool blocking_mode)
         const char* entry_data = monitor_get_entry_buffer(ctx);
         while(monitor_wait_for_new_data(ctx) )
         {
+            // Check for file transfer requests FIRST, before processing output
+            // This is critical for GDB backend where target needs immediate response
+            monitor_handle_file_send_request(ctx);
+            monitor_handle_file_recv_request(ctx);
+            
             while(!is_buffer_empty(ctx))
             {
                 if(!monitor_update_entry(ctx, blocking_mode))
@@ -493,6 +508,15 @@ void monitor_run(monitor_ctx_t *ctx, bool show_timestamps, bool blocking_mode)
                     printf("%s", entry_data);
                 }
                 fflush(stdout);  // Ensure output is written immediately
+            }
+            
+            // For GDB backend, resume target to allow file transfers and input requests
+            if(ctx->backend_type == BACKEND_TYPE_GDB)
+            {
+                if(gdb_resume_briefly(ctx->socket) < 0)
+                {
+                    TRACE_WARN("Failed to resume target briefly in main loop\n");
+                }
             }
             
             // Check for file transfer requests from firmware
@@ -894,13 +918,18 @@ bool monitor_handle_input_request(monitor_ctx_t *ctx)
  */
 bool monitor_handle_file_send_request(monitor_ctx_t *ctx)
 {
+    // Debug: always log flags to see what's happening
+    if(ctx->ring.flags != 0) {
+        TRACE_VERBOSE("Checking file send request: flags=0x%08X\n", ctx->ring.flags);
+    }
+    
     // Check if firmware requested file send
     if(!(ctx->ring.flags & DMLOG_FLAG_FILE_SEND_REQ))
     {
         return false;
     }
 
-    TRACE_INFO("File send request detected\n");
+    TRACE_INFO("File send request detected (flags=0x%08X)\n", ctx->ring.flags);
 
     // Read file_transfer structure address from ring
     uint64_t transfer_addr = ctx->ring.file_transfer;
