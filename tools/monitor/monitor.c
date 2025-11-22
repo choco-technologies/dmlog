@@ -958,6 +958,13 @@ bool monitor_handle_file_send_request(monitor_ctx_t *ctx)
                transfer.host_file_name, transfer.chunk_size, transfer.total_size, 
                transfer.offset, (unsigned long long)transfer.buffer_address);
 
+    // Validate chunk_size to prevent excessive allocation
+    if(transfer.chunk_size == 0 || transfer.chunk_size > DMLOG_FILE_TRANSFER_CHUNK_SIZE * 2)
+    {
+        TRACE_ERROR("Invalid chunk size: %u (max: %d)\n", transfer.chunk_size, DMLOG_FILE_TRANSFER_CHUNK_SIZE * 2);
+        return false;
+    }
+
     // Allocate buffer for chunk data
     void* chunk_buffer = malloc(transfer.chunk_size);
     if(chunk_buffer == NULL)
@@ -975,8 +982,13 @@ bool monitor_handle_file_send_request(monitor_ctx_t *ctx)
         return false;
     }
 
-    // Open/create host file (append mode if offset > 0, write mode if offset == 0)
-    FILE* file = fopen(transfer.host_file_name, transfer.offset == 0 ? "wb" : "ab");
+    // Open host file with random access (rb+ for update, wb for new file)
+    FILE* file = fopen(transfer.host_file_name, transfer.offset == 0 ? "wb" : "rb+");
+    if(file == NULL && transfer.offset > 0)
+    {
+        // File doesn't exist yet, create it
+        file = fopen(transfer.host_file_name, "wb");
+    }
     if(file == NULL)
     {
         TRACE_ERROR("Failed to open host file: %s\n", transfer.host_file_name);
@@ -984,7 +996,16 @@ bool monitor_handle_file_send_request(monitor_ctx_t *ctx)
         return false;
     }
 
-    // Write chunk to file
+    // Seek to correct offset for this chunk
+    if(fseek(file, transfer.offset, SEEK_SET) != 0)
+    {
+        TRACE_ERROR("Failed to seek to offset %u in file %s\n", transfer.offset, transfer.host_file_name);
+        fclose(file);
+        free(chunk_buffer);
+        return false;
+    }
+
+    // Write chunk to file at specific offset
     size_t written = fwrite(chunk_buffer, 1, transfer.chunk_size, file);
     fclose(file);
     free(chunk_buffer);
@@ -1077,17 +1098,45 @@ bool monitor_handle_file_recv_request(monitor_ctx_t *ctx)
     if(transfer.offset == 0)
     {
         fseek(file, 0, SEEK_END);
-        transfer.total_size = ftell(file);
+        long file_size = ftell(file);
+        if(file_size < 0)
+        {
+            TRACE_ERROR("Failed to get file size for %s\n", transfer.host_file_name);
+            fclose(file);
+            return false;
+        }
+        transfer.total_size = (uint32_t)file_size;
         fseek(file, 0, SEEK_SET);
         TRACE_INFO("Host file size: %u bytes\n", transfer.total_size);
     }
 
+    // Validate offset against total_size to prevent underflow
+    if(transfer.offset > transfer.total_size)
+    {
+        TRACE_ERROR("Invalid offset %u exceeds file size %u\n", transfer.offset, transfer.total_size);
+        fclose(file);
+        return false;
+    }
+
     // Seek to current offset
-    fseek(file, transfer.offset, SEEK_SET);
+    if(fseek(file, transfer.offset, SEEK_SET) != 0)
+    {
+        TRACE_ERROR("Failed to seek to offset %u in file %s\n", transfer.offset, transfer.host_file_name);
+        fclose(file);
+        return false;
+    }
 
     // Calculate how much to read for this chunk
     uint32_t remaining = transfer.total_size - transfer.offset;
     uint32_t chunk_to_read = (remaining < DMLOG_FILE_TRANSFER_CHUNK_SIZE) ? remaining : DMLOG_FILE_TRANSFER_CHUNK_SIZE;
+    
+    // Validate chunk_to_read to prevent excessive allocation
+    if(chunk_to_read == 0 || chunk_to_read > DMLOG_FILE_TRANSFER_CHUNK_SIZE)
+    {
+        TRACE_ERROR("Invalid chunk size to read: %u (max: %d)\n", chunk_to_read, DMLOG_FILE_TRANSFER_CHUNK_SIZE);
+        fclose(file);
+        return false;
+    }
     
     // Allocate buffer for chunk data
     void* chunk_buffer = malloc(chunk_to_read);
