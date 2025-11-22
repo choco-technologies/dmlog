@@ -465,6 +465,15 @@ void allocate_dynamic_buffer(void) {
 
 Flags can be combined using bitwise OR: `DMLOG_INPUT_REQUEST_FLAG_ECHO_OFF | DMLOG_INPUT_REQUEST_FLAG_LINE_MODE`
 
+### File Transfer API
+
+| Function | Description |
+|----------|-------------|
+| `bool dmlog_file_send(dmlog_ctx_t ctx, const char* src_file_path, const char* dst_file_path)` | Send file from firmware to host via monitor |
+| `bool dmlog_file_receive(dmlog_ctx_t ctx, const char* src_file_path, const char* dst_file_path)` | Receive file from host to firmware via monitor |
+
+**Note**: File transfers work best with OpenOCD backend or real hardware where the target runs continuously. GDB backend has known timing limitations. See [FILE_TRANSFER.md](FILE_TRANSFER.md) for details.
+
 ## 🔨 Building
 
 ### Basic Build

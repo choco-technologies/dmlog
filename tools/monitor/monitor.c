@@ -468,6 +468,13 @@ void monitor_run(monitor_ctx_t *ctx, bool show_timestamps, bool blocking_mode)
     {
         TRACE_INFO("Monitoring in live mode\n");
         const char* entry_data = monitor_get_entry_buffer(ctx);
+        
+        // For GDB backend, start with target running so firmware can execute
+        if(ctx->backend_type == BACKEND_TYPE_GDB)
+        {
+            gdb_resume_briefly(ctx->socket);
+        }
+        
         while(monitor_wait_for_new_data(ctx) )
         {
             // Check for file transfer requests FIRST, before processing output

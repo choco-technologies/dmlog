@@ -424,36 +424,23 @@ static int gdb_resume(int socket)
 }
 
 /**
- * @brief Resume target briefly to allow execution, then stop it again
+ * @brief Resume target and keep it running
  * 
- * This function resumes target execution to allow the firmware to:
- * - Process file transfer requests
- * - Handle input requests
- * - Write log data
- * Then interrupts it again so we can read memory.
+ * This function resumes target execution and leaves it running.
+ * The target will be automatically interrupted when memory needs to be read.
+ * This allows the firmware to continuously execute, which is needed for:
+ * - File transfer operations (which have timeout loops)
+ * - Input request handling
+ * - Normal log output generation
  * 
  * @param socket Socket file descriptor
  * @return int 0 on success, -1 on failure
  */
 int gdb_resume_briefly(int socket)
 {
-    if (target_is_running) {
-        // Already running, just interrupt it to check state
-        return gdb_interrupt(socket);
-    }
-    
-    // Resume target
-    if (gdb_resume(socket) < 0) {
-        return -1;
-    }
-    
-    // Let it run for enough time to process file transfers and input
-    // File transfers need significant time because firmware has timeout loops
-    // that need to run while waiting for monitor to process the transfer
-    usleep(500000); // 500ms to allow firmware time to set flags and wait
-    
-    // Interrupt it again so we can read memory
-    return gdb_interrupt(socket);
+    // Just resume the target and leave it running
+    // gdb_read_memory() and gdb_write_memory() will automatically interrupt when needed
+    return gdb_resume(socket);
 }
 
 /**
