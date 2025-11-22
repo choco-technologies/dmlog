@@ -294,7 +294,23 @@ bool monitor_wait_for_new_data(monitor_ctx_t *ctx)
             TRACE_VERBOSE("Input requested (flags=0x%08X), returning from wait\n", ctx->ring.flags);
             return true;
         }
+        if(ctx->ring.flags & (DMLOG_FLAG_FILE_SEND_REQ | DMLOG_FLAG_FILE_SEND_REQ) )
+        {
+            TRACE_VERBOSE("File transfer requested (flags=0x%08X), returning from wait\n", ctx->ring.flags);
+            return true;
+        }
         empty = is_buffer_empty(ctx);
+
+        // For GDB backend, briefly resume target so firmware can process the input
+        if(ctx->backend_type == BACKEND_TYPE_GDB)
+        {
+            if(gdb_resume_briefly(ctx->socket) < 0)
+            {
+                TRACE_WARN("Failed to resume target briefly, input may not be processed\n");
+                // Don't fail - the input is written, just might not be processed immediately
+            }
+        }
+        
     }
     TRACE_VERBOSE("New data available, returning from wait\n");
     return true;
@@ -489,6 +505,11 @@ void monitor_run(monitor_ctx_t *ctx, bool show_timestamps, bool blocking_mode)
             if(!monitor_handle_input_request(ctx))
             {
                 return; // exit on EOF
+            }
+
+            if(!monitor_handle_send_file_request(ctx))
+            {
+                return; // exit on failure
             }
 
             usleep(100000); // Sleep briefly to allow data to accumulate
@@ -862,5 +883,206 @@ bool monitor_handle_input_request(monitor_ctx_t *ctx)
         return !feof(ctx->input_file);
     }
     // Continue monitoring
+    return true;
+}
+
+/**
+ * @brief Handle file send request from firmware
+ * 
+ * @param ctx Pointer to the monitor context
+ * @return true on success, false on failure
+ */
+bool monitor_handle_send_file_request(monitor_ctx_t *ctx)
+{
+    if(!(ctx->ring.flags &(DMLOG_FLAG_FILE_SEND_REQ)))
+    {
+        return true; // No file transfer requested
+    }
+
+    TRACE_INFO("Handling file send request from firmware\n");
+    dmlog_file_transfer_t file_transfer;
+    uint64_t file_transfer_addr = ctx->ring.file_transfer;
+    if(backend_read_memory(ctx->backend_type, ctx->socket, file_transfer_addr, &file_transfer, sizeof(dmlog_file_transfer_t)) < 0)
+    {
+        TRACE_ERROR("Failed to read file transfer structure from target\n");
+        return false;
+    }
+
+    if(file_transfer.total_size == 0 || file_transfer.chunk_size == 0 || file_transfer.buffer_address == 0)
+    {
+        TRACE_ERROR("Invalid file transfer parameters: total_size=%llu, chunk_size=%u, buffer_address = %llu\n",
+            (unsigned long long)file_transfer.total_size,
+            file_transfer.chunk_size, 
+            (unsigned long long)file_transfer.buffer_address);
+        return false;
+    }
+
+    void* file_data = Dmod_Malloc(file_transfer.chunk_size);
+    if(file_data == NULL)
+    {
+        TRACE_ERROR("Failed to allocate memory for file transfer chunk\n");
+        return false;
+    }
+
+    if(backend_read_memory(ctx->backend_type, ctx->socket, (uint32_t)file_transfer.buffer_address, file_data, file_transfer.chunk_size) < 0)
+    {
+        TRACE_ERROR("Failed to read file data from target buffer\n");
+        Dmod_Free(file_data);
+        return false;
+    }
+
+    const char* mode = file_transfer.offset == 0 ? "wb" : "wb+";
+    void* file = Dmod_FileOpen(file_transfer.host_file_name, mode);
+    if(file == NULL)
+    {
+        TRACE_ERROR("Failed to open local file '%s' for writing\n", file_transfer.host_file_name);
+        Dmod_Free(file_data);
+        return false;
+    }
+
+    if(Dmod_FileSeek(file, file_transfer.offset, SEEK_SET) != 0)
+    {
+        TRACE_ERROR("Failed to seek to offset %llu in local file '%s'\n",
+            (unsigned long long)file_transfer.offset,
+            file_transfer.host_file_name);
+        Dmod_FileClose(file);
+        Dmod_Free(file_data);
+        return false;
+    }
+
+    size_t written = Dmod_FileWrite(file_data, 1, file_transfer.chunk_size, file);
+    if(written != file_transfer.chunk_size)
+    {
+        TRACE_ERROR("Failed to write %u bytes to local file '%s', only wrote %zu bytes\n",
+            file_transfer.chunk_size,
+            file_transfer.host_file_name,
+            written);
+        Dmod_FileClose(file);
+        Dmod_Free(file_data);
+        return false;
+    }
+
+    Dmod_FileClose(file);
+    Dmod_Free(file_data);
+    TRACE_INFO("Wrote %u bytes to local file '%s' at offset %llu\n",
+        file_transfer.chunk_size,
+        file_transfer.host_file_name,
+        (unsigned long long)file_transfer.offset);
+    // Clear the FILE_SEND_REQ flag
+    uint32_t new_flags = ctx->ring.flags & ~DMLOG_FLAG_FILE_SEND_REQ;
+    if(backend_write_memory(ctx->backend_type, ctx->socket, ctx->ring_address + offsetof(dmlog_ring_t, flags), &new_flags, sizeof(uint32_t)) < 0)
+    {
+        TRACE_ERROR("Failed to clear FILE_SEND_REQ flag\n");
+        return false;
+    }
+
+    // Update local cache
+    ctx->ring.flags = new_flags;
+
+    // For GDB backend, briefly resume target so firmware can process the input
+    if(ctx->backend_type == BACKEND_TYPE_GDB)
+    {
+        if(gdb_resume_briefly(ctx->socket) < 0)
+        {
+            TRACE_WARN("Failed to resume target briefly, input may not be processed\n");
+            // Don't fail - the input is written, just might not be processed immediately
+        }
+    }
+
+    return true;
+}
+
+bool monitor_handle_receive_file_request(monitor_ctx_t *ctx)
+{
+    if(!(ctx->ring.flags &(DMLOG_FLAG_FILE_RECV_REQ)))
+    {
+        return true; // No file transfer requested
+    }
+
+    TRACE_INFO("Handling file receive request from firmware\n");
+    dmlog_file_transfer_t file_transfer;
+    uint64_t file_transfer_addr = ctx->ring.file_transfer;
+    if(backend_read_memory(ctx->backend_type, ctx->socket, file_transfer_addr, &file_transfer, sizeof(dmlog_file_transfer_t)) < 0)
+    {
+        TRACE_ERROR("Failed to read file transfer structure from target\n");
+        return false;
+    }
+
+    if(file_transfer.chunk_size == 0)
+    {
+        TRACE_ERROR("Invalid file transfer parameters: chunk_size=%u\n",
+            file_transfer.chunk_size);
+        return false;
+    }
+
+    void* file_data = Dmod_Malloc(file_transfer.chunk_size);
+    if(file_data == NULL)
+    {
+        TRACE_ERROR("Failed to allocate memory for file transfer chunk\n");
+        return false;
+    }
+
+    void* file = Dmod_FileOpen(file_transfer.host_file_name, "rb");
+    if(file == NULL)
+    {
+        TRACE_ERROR("Failed to open local file '%s' for reading\n", file_transfer.host_file_name);
+        Dmod_Free(file_data);
+        return false;
+    }
+
+    if(Dmod_FileSeek(file, file_transfer.offset, SEEK_SET) != 0)
+    {
+        TRACE_ERROR("Failed to seek to offset %llu in local file '%s'\n",
+            (unsigned long long)file_transfer.offset,
+            file_transfer.host_file_name);
+        Dmod_FileClose(file);
+        Dmod_Free(file_data);
+        return false;
+    }
+
+    size_t read_bytes = Dmod_FileRead(file_data, 1, file_transfer.chunk_size, file);
+    if(read_bytes != file_transfer.chunk_size)
+    {
+        TRACE_ERROR("Failed to read %u bytes from local file '%s', only read %zu bytes\n",
+            file_transfer.chunk_size,
+            file_transfer.host_file_name,
+            read_bytes);
+        Dmod_FileClose(file);
+        Dmod_Free(file_data);
+        return false;
+    }
+
+    Dmod_FileClose(file);
+    if(backend_write_memory(ctx->backend_type, ctx->socket, (uint32_t)file_transfer.buffer_address, file_data, file_transfer.chunk_size) < 0)
+    {
+        TRACE_ERROR("Failed to write file data to target buffer\n");
+        Dmod_Free(file_data);
+        return false;
+    }
+
+    Dmod_Free(file_data);
+    TRACE_INFO("Read %u bytes from local file '%s' at offset %llu and sent to target\n",
+        file_transfer.chunk_size,
+        file_transfer.host_file_name,
+        (unsigned long long)file_transfer.offset);
+    // Clear the FILE_RECV_REQ flag
+    uint32_t new_flags = ctx->ring.flags & ~DMLOG_FLAG_FILE_RECV_REQ;
+    if(backend_write_memory(ctx->backend_type, ctx->socket, ctx->ring_address + offsetof(dmlog_ring_t, flags), &new_flags, sizeof(uint32_t)) < 0)
+    {
+        TRACE_ERROR("Failed to clear FILE_RECV_REQ flag\n");
+        return false;
+    }
+    // Update local cache
+    ctx->ring.flags = new_flags;
+
+    // For GDB backend, briefly resume target so firmware can process the input
+    if(ctx->backend_type == BACKEND_TYPE_GDB)
+    {
+        if(gdb_resume_briefly(ctx->socket) < 0)
+        {
+            TRACE_WARN("Failed to resume target briefly, input may not be processed\n");
+            // Don't fail - the input is written, just might not be processed immediately
+        }
+    }
     return true;
 }

@@ -4,10 +4,15 @@
 # This script runs multiple test scenarios to validate:
 # 1. Output path (firmware → PC via dmlog_monitor)
 # 2. Input path (PC → firmware via dmlog_monitor)
-# 3. Mixed bidirectional communication
-# 4. Various buffer sizes and edge cases
+# 3. File transfer (bidirectional file transfer)
+# 4. Mixed bidirectional communication
+# 5. Various buffer sizes and edge cases
 #
 # The test runs under gdbserver with dmlog_monitor connected via GDB backend
+#
+# Usage:
+#   ./test_automated_gdb.sh           # Run all tests
+#   ./test_automated_gdb.sh <number>  # Run specific test by number
 
 set -e
 
@@ -28,6 +33,14 @@ NC='\033[0m' # No Color
 
 echo "=== dmlog Automated Integration Test with GDB ==="
 echo ""
+
+# Parse command line arguments for specific test number
+SPECIFIC_TEST=""
+if [ $# -gt 0 ]; then
+    SPECIFIC_TEST=$1
+    echo "Running specific test: #$SPECIFIC_TEST"
+    echo ""
+fi
 
 # Check prerequisites
 if [ ! -f "$TEST_APP" ]; then
@@ -87,7 +100,7 @@ run_test() {
     local input_data="/tmp/dmlog_test_${scenario_name}_input.txt"
     
     # Generate expected output from scenario file
-    # Skip comments and convert <user_input> to expected echo
+    # Skip comments and convert special markers to expected echo
     awk '
         /^#/ { next }
         /^$/ { next }
@@ -95,11 +108,39 @@ run_test() {
             print "Received: Test input line " ++input_count
             next 
         }
+        /<file_send:/ {
+            # Extract paths from <file_send:src:dst>
+            match($0, /<file_send:([^:]+):([^>]+)>/, paths)
+            print "Sending file: " paths[1] " -> " paths[2]
+            print "File send successful"
+            next
+        }
+        /<file_recv:/ {
+            # Extract paths from <file_recv:src:dst>
+            match($0, /<file_recv:([^:]+):([^>]+)>/, paths)
+            print "Receiving file: " paths[1] " -> " paths[2]
+            print "File receive successful"
+            next
+        }
         { print }
     ' "$scenario_file" > "$expected_output"
     
     # Count number of input requests
     local input_count=$(grep -c "<user_input>" "$scenario_file" || echo "0")
+    
+    # Prepare test files for file transfer tests
+    if grep -q "<file_send:" "$scenario_file"; then
+        echo "Test file: This is a test file for dmlog file transfer" > /tmp/test_source.txt
+        echo "Line 2 of test file" >> /tmp/test_source.txt
+        echo "Line 3 - final line" >> /tmp/test_source.txt
+        echo "Another test file from firmware" > /tmp/test_fw_file.txt
+    fi
+    
+    if grep -q "<file_recv:" "$scenario_file"; then
+        echo "Host file content: Test data from host to firmware" > /tmp/test_host_input.txt
+        echo "Second line from host" >> /tmp/test_host_input.txt
+        echo "Host file for firmware" > /tmp/test_host_file.txt
+    fi
     
     echo "Step 1: Starting gdbserver with test application..."
     gdbserver --once :${GDB_PORT} "$TEST_APP" "$scenario_file" "$buffer_size" > "$app_output" 2>&1 &
@@ -145,7 +186,7 @@ run_test() {
         echo "exit" >> "$input_data"
         
         # Run monitor with input file
-        timeout $MONITOR_TIMEOUT "$MONITOR" --gdb --port $GDB_PORT --addr $BUFFER_ADDR --time --input-file "$input_data" > "$test_output" 2>&1 &
+        timeout $MONITOR_TIMEOUT "$MONITOR" --gdb --port $GDB_PORT --addr $BUFFER_ADDR --time --input-file "$input_data" --verbose > "$test_output" 2>&1 &
     else
         # Run monitor without input for output-only tests
         timeout $MONITOR_TIMEOUT "$MONITOR" --gdb --port $GDB_PORT --addr $BUFFER_ADDR > "$test_output" 2>&1 &
@@ -217,29 +258,48 @@ run_test() {
     fi
 }
 
-# Run all test scenarios
+# Run all test scenarios (or specific test if requested)
 echo "Running test scenarios..."
 echo ""
 
+# Helper function to conditionally run test based on SPECIFIC_TEST variable
+maybe_run_test() {
+    local test_num=$1
+    local scenario_file=$2
+    local buffer_size=${3:-4096}
+    
+    # If SPECIFIC_TEST is set and doesn't match, skip
+    if [ -n "$SPECIFIC_TEST" ] && [ "$SPECIFIC_TEST" != "$test_num" ]; then
+        return 0
+    fi
+    
+    if [ -f "$scenario_file" ]; then
+        run_test "$scenario_file" "$buffer_size"
+    else
+        echo "Warning: Test scenario not found: $scenario_file"
+    fi
+}
+
 # Test 1: Output only
-if [ -f "$SCENARIOS_DIR/test_output_only.txt" ]; then
-    run_test "$SCENARIOS_DIR/test_output_only.txt" 4096
-fi
+maybe_run_test 1 "$SCENARIOS_DIR/test_output_only.txt" 4096
 
 # Test 2: Single input
-if [ -f "$SCENARIOS_DIR/test_input_single.txt" ]; then
-    run_test "$SCENARIOS_DIR/test_input_single.txt" 4096
-fi
+maybe_run_test 2 "$SCENARIOS_DIR/test_input_single.txt" 4096
 
 # Test 3: Multiple inputs
-if [ -f "$SCENARIOS_DIR/test_input_multiple.txt" ]; then
-    run_test "$SCENARIOS_DIR/test_input_multiple.txt" 4096
-fi
+maybe_run_test 3 "$SCENARIOS_DIR/test_input_multiple.txt" 4096
 
 # Test 4: Complex mixed
-if [ -f "$SCENARIOS_DIR/test_mixed_complex.txt" ]; then
-    run_test "$SCENARIOS_DIR/test_mixed_complex.txt" 2048
-fi
+maybe_run_test 4 "$SCENARIOS_DIR/test_mixed_complex.txt" 2048
+
+# Test 5: File send (FW -> Host)
+maybe_run_test 5 "$SCENARIOS_DIR/test_file_send.txt" 4096
+
+# Test 6: File receive (Host -> FW)
+maybe_run_test 6 "$SCENARIOS_DIR/test_file_recv.txt" 4096
+
+# Test 7: Bidirectional file transfer
+maybe_run_test 7 "$SCENARIOS_DIR/test_file_bidirectional.txt" 4096
 
 # Print final summary
 echo ""

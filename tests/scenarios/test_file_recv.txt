@@ -1,0 +1,6 @@
+# Test scenario: File receive from host to firmware
+# This tests file transfer path (Host -> FW)
+
+Test message 1: Starting file receive test
+<file_recv:/tmp/test_host_input.txt:/tmp/test_received.txt>
+Test message 2: File receive test completed

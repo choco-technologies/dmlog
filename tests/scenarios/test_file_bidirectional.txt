@@ -1,0 +1,11 @@
+# Test scenario: Bidirectional file transfer
+# This tests both send and receive
+
+Test message 1: Starting bidirectional file transfer test
+Test message 2: Sending file from firmware to host
+<file_send:/tmp/test_fw_file.txt:/tmp/test_host_received.txt>
+Test message 3: File send completed
+Test message 4: Receiving file from host to firmware
+<file_recv:/tmp/test_host_file.txt:/tmp/test_fw_received.txt>
+Test message 5: File receive completed
+Test message 6: Bidirectional file transfer test completed

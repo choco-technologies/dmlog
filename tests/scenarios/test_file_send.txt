@@ -1,0 +1,6 @@
+# Test scenario: File send from firmware to host
+# This tests file transfer path (FW -> Host)
+
+Test message 1: Starting file send test
+<file_send:/tmp/test_source.txt:/tmp/test_output.txt>
+Test message 2: File send test completed
