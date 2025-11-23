@@ -108,24 +108,16 @@ option(ENABLE_COVERAGE "Enable code coverage" OFF)
 
 if(ENABLE_COVERAGE)
     if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
-        message(STATUS "Enabling code coverage")
+        message(STATUS "Enabling code coverage for tests")
         
-        # Add coverage flags to the dmlog library
-        target_compile_options(dmlog PRIVATE --coverage -fprofile-arcs -ftest-coverage)
-        target_link_options(dmlog PRIVATE --coverage)
-        
-        # Add coverage flags to test executables
-        target_compile_options(test_dmlog_unit PRIVATE --coverage -fprofile-arcs -ftest-coverage)
-        target_link_options(test_dmlog_unit PRIVATE --coverage)
-        
-        target_compile_options(test_simple PRIVATE --coverage -fprofile-arcs -ftest-coverage)
-        target_link_options(test_simple PRIVATE --coverage)
-        
-        target_compile_options(test_benchmark PRIVATE --coverage -fprofile-arcs -ftest-coverage)
-        target_link_options(test_benchmark PRIVATE --coverage)
+        # Link with gcov explicitly for all test executables
+        target_link_libraries(test_dmlog_unit PRIVATE gcov)
+        target_link_libraries(test_simple PRIVATE gcov)
+        target_link_libraries(test_benchmark PRIVATE gcov)
+        target_link_libraries(test_input PRIVATE gcov)
+        target_link_libraries(test_app_interactive PRIVATE gcov)
         
         # Add custom target for generating coverage report
-        find_program(GCOV gcov)
         find_program(LCOV lcov)
         find_program(GENHTML genhtml)
         

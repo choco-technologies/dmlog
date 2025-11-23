@@ -143,7 +143,8 @@ run_test() {
     fi
     
     echo "Step 1: Starting gdbserver with test application..."
-    gdbserver --once :${GDB_PORT} "$TEST_APP" "$scenario_file" "$buffer_size" > "$app_output" 2>&1 &
+    echo "application output at: $app_output"
+    gdbserver --once :${GDB_PORT} "$TEST_APP" "$scenario_file" "$buffer_size" &
     local GDBSERVER_PID=$!
     
     # Wait for gdbserver to be ready
@@ -172,7 +173,7 @@ run_test() {
     echo "   Buffer address: $BUFFER_ADDR"
     
     echo "Step 2: Connecting dmlog_monitor..."
-    
+
     # Prepare input file if test has input requests
     if [ "$input_count" -gt 0 ] 2>/dev/null; then
         echo "   Test requires $input_count input(s), preparing input file..."
@@ -184,10 +185,14 @@ run_test() {
         
         # Add "exit" command as the last input to terminate the app gracefully
         echo "exit" >> "$input_data"
+
+        echo "With input file at: $input_data"
         
         # Run monitor with input file
-        timeout $MONITOR_TIMEOUT "$MONITOR" --gdb --port $GDB_PORT --addr $BUFFER_ADDR --time --input-file "$input_data" --verbose > "$test_output" 2>&1 &
+        timeout $MONITOR_TIMEOUT "$MONITOR" --gdb --port $GDB_PORT --addr $BUFFER_ADDR --time --input-file "$input_data" > "$test_output" 2>&1 &
     else
+        echo "   No input required for this test."
+
         # Run monitor without input for output-only tests
         timeout $MONITOR_TIMEOUT "$MONITOR" --gdb --port $GDB_PORT --addr $BUFFER_ADDR > "$test_output" 2>&1 &
     fi

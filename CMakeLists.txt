@@ -20,12 +20,17 @@ set(DMLOG_INPUT_BUFFER_SIZE 512 CACHE STRING "Input buffer size in bytes (defaul
 option(ENABLE_COVERAGE "Enable code coverage" OFF)
 
 if(ENABLE_COVERAGE)
-    message(STATUS "Code coverage enabled")
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} --coverage")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --coverage")
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} --coverage")
-    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} --coverage")
-    # Note: Don't set CMAKE_STATIC_LINKER_FLAGS as 'ar' doesn't support --coverage
+    if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        message(STATUS "Code coverage enabled")
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} --coverage -fprofile-arcs -ftest-coverage")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --coverage -fprofile-arcs -ftest-coverage")
+        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} --coverage")
+        set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} --coverage")
+        # Note: Don't set CMAKE_STATIC_LINKER_FLAGS as 'ar' doesn't support --coverage
+    else()
+        message(WARNING "Code coverage is only supported with GCC or Clang")
+        set(ENABLE_COVERAGE OFF)
+    endif()
 endif()
 
 # ======================================================================
@@ -50,9 +55,12 @@ if(NOT TARGET dmod_inc)
     set(DMOD_BUILD_TOOLS OFF CACHE BOOL "Build tools")
     set(DMOD_BUILD_TEMPLATES OFF CACHE BOOL "Build templates")
     
-    # Pass coverage flags to DMOD if enabled
+    # Pass coverage flags to DMOD if enabled - set before FetchContent_MakeAvailable
     if(ENABLE_COVERAGE)
         set(DMOD_ENABLE_COVERAGE ON CACHE BOOL "Enable DMOD coverage")
+        # Ensure DMOD uses the same coverage flags
+        set(CMAKE_C_FLAGS_INIT "${CMAKE_C_FLAGS}")
+        set(CMAKE_CXX_FLAGS_INIT "${CMAKE_CXX_FLAGS}")
     endif()
 
     FetchContent_MakeAvailable(dmod)

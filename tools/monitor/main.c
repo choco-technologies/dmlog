@@ -180,6 +180,8 @@ int main(int argc, char *argv[])
 
     monitor_run(ctx, show_timestamps, blocking_mode);
 
+    TRACE_INFO("Exiting monitor\n");
+
     // Main monitoring loop would go here
     monitor_disconnect(ctx);
 

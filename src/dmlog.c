@@ -601,6 +601,23 @@ void dmlog_clear(dmlog_ctx_t ctx)
 }
 
 /**
+ * @brief Signal the monitor to exit.
+ * 
+ * @param ctx DMLoG context.
+ */
+void dmlog_exit_monitor(dmlog_ctx_t ctx)
+{
+    Dmod_EnterCritical();
+    if(dmlog_is_valid(ctx))
+    {
+        context_lock(ctx);
+        ctx->ring.flags |= DMLOG_FLAG_EXIT_REQUESTED;
+        context_unlock(ctx);
+    }
+    Dmod_ExitCritical();
+}
+
+/**
  * @brief Get the amount of free space in the input ring buffer.
  * 
  * @param ctx DMLoG context.
@@ -838,68 +855,73 @@ bool dmlog_file_send(dmlog_ctx_t ctx, const char* src_file_path, const char* dst
 {
     if(!dmlog_is_valid(ctx) || src_file_path == NULL || dst_file_path == NULL)
     {
+        DMOD_LOG_ERROR("Invalid parameters for dmlog_file_send\n");
         return false;
     }
 
-    dmlog_file_transfer_t transfer;
-    memset(&transfer, 0, sizeof(transfer));
-    strncpy(transfer.host_file_name, dst_file_path, sizeof(transfer.host_file_name) - 1);
-    transfer.chunk_size = DMLOG_FILE_TRANSFER_CHUNK_SIZE;
-    void* buffer = Dmod_Malloc(transfer.chunk_size);
+    // Note: Cannot be on the stack due to x86 (virtual memory access via gdb)
+    dmlog_file_transfer_t* transfer = Dmod_Malloc(sizeof(dmlog_file_transfer_t));
+    if(transfer == NULL)
+    {
+        DMOD_LOG_ERROR("Cannot allocate file transfer structure\n");
+        return false;
+    }
+    memset(transfer, 0, sizeof(*transfer));
+    strncpy(transfer->host_file_name, dst_file_path, sizeof(transfer->host_file_name) - 1);
+    transfer->chunk_size = DMLOG_FILE_TRANSFER_CHUNK_SIZE;
+    void* buffer = Dmod_Malloc(transfer->chunk_size);
     if(buffer == NULL)
     {
+        DMOD_LOG_ERROR("Cannot allocate file transfer buffer\n");
+        Dmod_Free(transfer);
         return false;
     }
 
-    transfer.buffer_address = (uint64_t)(uintptr_t)buffer;
-    transfer.offset = 0;
+    transfer->buffer_address = (uint64_t)(uintptr_t)buffer;
+    transfer->offset = 0;
+
+    DMOD_LOG_INFO("transfer struct addr: %p\n", (void*)transfer);
     
     void* file = Dmod_FileOpen(src_file_path, "rb");
     if(file == NULL)
     {
+        DMOD_LOG_ERROR("Cannot open file: %s\n", src_file_path);
         Dmod_Free(buffer);
+        Dmod_Free(transfer);
         return false;
     }
 
-    transfer.total_size = Dmod_FileSize(file);
+    transfer->total_size = Dmod_FileSize(file);
     
     bool result = true;
-    for(transfer.offset = 0; result && transfer.offset < transfer.total_size; )
+    for(transfer->offset = 0; result && transfer->offset < transfer->total_size; )
     {
-        uint32_t left_bytes = transfer.total_size - transfer.offset;
-        transfer.chunk_size = (left_bytes < DMLOG_FILE_TRANSFER_CHUNK_SIZE) ? left_bytes : DMLOG_FILE_TRANSFER_CHUNK_SIZE;
-        uint32_t read_bytes = Dmod_FileRead(buffer, 1, transfer.chunk_size, file);
-        if(read_bytes != transfer.chunk_size)
+        uint32_t left_bytes = transfer->total_size - transfer->offset;
+        transfer->chunk_size = (left_bytes < DMLOG_FILE_TRANSFER_CHUNK_SIZE) ? left_bytes : DMLOG_FILE_TRANSFER_CHUNK_SIZE;
+        uint32_t read_bytes = Dmod_FileRead(buffer, 1, transfer->chunk_size, file);
+        if(read_bytes != transfer->chunk_size)
         {
             DMOD_LOG_ERROR("Cannot read file: %s\n", src_file_path);
             result = false;
             break;
         }
-        bool chunk_sent = false;
-        uint32_t retry_count = 0;
-        while(!chunk_sent)
-        {
-            context_lock(ctx);
-            ctx->ring.file_transfer = (uint64_t)(uintptr_t)&transfer;
-            ctx->ring.flags |= DMLOG_FLAG_FILE_SEND_REQ;
-            context_unlock(ctx);
+        context_lock(ctx);
+        ctx->ring.file_transfer = (uint64_t)(uintptr_t)transfer;
+        ctx->ring.flags |= DMLOG_FLAG_FILE_SEND_REQ;
+        context_unlock(ctx);
 
-            volatile uint64_t timeout = 10000;
-            while(((ctx->ring.flags & DMLOG_FLAG_FILE_SEND_REQ) != 0) && timeout > 0)
-            {
-                timeout--;
-            }
-            chunk_sent = (ctx->ring.flags & DMLOG_FLAG_FILE_SEND_REQ) == 0;
-            if(!chunk_sent && retry_count > 1000)
-            {
-                DMOD_LOG_ERROR("File transfer timeout: %s\n", src_file_path);
-                result = false;
-                break;
-            }
-            retry_count++;
+        // TODO: Add timeout mechanism - currently it is not possible
+        // due to gdb synchronization issues.
+        while(((ctx->ring.flags & DMLOG_FLAG_FILE_SEND_REQ) != 0));
+
+        if(transfer->status != 0)
+        {
+            DMOD_LOG_ERROR("Cannot send file - host reported error %s\n", strerror(transfer->status));
+            result = false;
+            break;
         }
         
-        transfer.offset += transfer.chunk_size;
+        transfer->offset += transfer->chunk_size;
     }
 
     context_lock(ctx);
@@ -909,6 +931,7 @@ bool dmlog_file_send(dmlog_ctx_t ctx, const char* src_file_path, const char* dst
 
     Dmod_Free(buffer);
     Dmod_FileClose(file);
+    Dmod_Free(transfer);
 
     return result;
 }
@@ -927,82 +950,78 @@ bool dmlog_file_receive(dmlog_ctx_t ctx, const char* src_file_path, const char* 
     {
         return false;
     }
-    dmlog_file_transfer_t transfer;
-    if(strlen(dst_file_path) >= sizeof(transfer.host_file_name))
+    dmlog_file_transfer_t *transfer = Dmod_Malloc(sizeof(dmlog_file_transfer_t));
+    if(transfer == NULL)
+    {
+        DMOD_LOG_ERROR("Cannot allocate file transfer structure\n");
+        return false;
+    }
+
+    if(strlen(dst_file_path) >= sizeof(transfer->host_file_name))
     {
         DMOD_LOG_ERROR("Destination file path too long: %s\n", dst_file_path);
+        Dmod_Free(transfer);
         return false;
     }
 
-    memset(&transfer, 0, sizeof(transfer));
-    strncpy(transfer.host_file_name, src_file_path, sizeof(transfer.host_file_name) - 1);
-    transfer.chunk_size = DMLOG_FILE_TRANSFER_CHUNK_SIZE;
-    void* buffer = Dmod_Malloc(transfer.chunk_size);
+    memset(transfer, 0, sizeof(transfer));
+    strncpy(transfer->host_file_name, src_file_path, sizeof(transfer->host_file_name) - 1);
+    transfer->chunk_size = DMLOG_FILE_TRANSFER_CHUNK_SIZE;
+    void* buffer = Dmod_Malloc(transfer->chunk_size);
     if(buffer == NULL)
     {
+        DMOD_LOG_ERROR("Cannot allocate file transfer buffer\n");
+        Dmod_Free(transfer);
         return false;
     }
 
-    transfer.buffer_address = (uint64_t)(uintptr_t)buffer;
-    transfer.offset = 0;
+    transfer->buffer_address = (uint64_t)(uintptr_t)buffer;
+    transfer->offset = 0;
     
     void* file = Dmod_FileOpen(src_file_path, "wb");
     if(file == NULL)
     {
         Dmod_Free(buffer);
+        Dmod_Free(transfer);
+        DMOD_LOG_ERROR("Cannot open file for writing: %s\n", dst_file_path);
         return false;
     }
 
-    transfer.total_size = 0; // Will be set by the host
+    transfer->total_size = 0; // Will be set by the host
     
     bool result = true;
-    for(transfer.offset = 0; result && transfer.offset < transfer.total_size || transfer.total_size == 0; )
+    for(transfer->offset = 0; result && transfer->offset < transfer->total_size || transfer->total_size == 0; )
     {
-        transfer.chunk_size = DMLOG_FILE_TRANSFER_CHUNK_SIZE;
-        bool chunk_received = false;
-        uint32_t retry_count = 0;
-        while(!chunk_received)
-        {
-            context_lock(ctx);
-            ctx->ring.file_transfer = (uint64_t)(uintptr_t)&transfer;
-            ctx->ring.flags |= DMLOG_FLAG_FILE_RECV_REQ;
-            context_unlock(ctx);
+        transfer->chunk_size = DMLOG_FILE_TRANSFER_CHUNK_SIZE;
 
-            volatile uint64_t timeout = 10000;
-            while(((ctx->ring.flags & DMLOG_FLAG_FILE_RECV_REQ) != 0) && timeout > 0)
-            {
-                timeout--;
-            }
-            chunk_received = (ctx->ring.flags & DMLOG_FLAG_FILE_RECV_REQ) == 0;
-            if(!chunk_received && retry_count > 1000)
-            {
-                DMOD_LOG_ERROR("File receive timeout: %s\n", dst_file_path);
-                result = false;
-                break;
-            }
-            retry_count++;
-        }
+        context_lock(ctx);
+        ctx->ring.file_transfer = (uint64_t)(uintptr_t)transfer;
+        ctx->ring.flags |= DMLOG_FLAG_FILE_RECV_REQ;
+        context_unlock(ctx);
 
-        if(transfer.total_size == 0)
+        // TODO: Add timeout mechanism - currently it is not possible due to gdb synchronization issues.
+        while(((ctx->ring.flags & DMLOG_FLAG_FILE_RECV_REQ) != 0));
+
+        if(transfer->status != 0)
         {
-            DMOD_LOG_ERROR("Cannot receive file - total file size was not set\n");
+            DMOD_LOG_ERROR("Cannot receive file - host reported error %s\n", strerror(transfer->status));
             result = false;
             break;
         }
-        if(transfer.chunk_size == 0)
+
+        if(transfer->chunk_size == 0 || transfer->total_size == 0)
         {
-            DMOD_LOG_ERROR("Cannot receive file - chunk size was set to 0\n");
-            result = false;
+            DMOD_LOG_WARN("Empty file received: %s\n", dst_file_path);
             break;
         }
-        size_t written_bytes = Dmod_FileWrite(buffer, 1, transfer.chunk_size, file);
-        if(written_bytes != transfer.chunk_size)
+        size_t written_bytes = Dmod_FileWrite(buffer, 1, transfer->chunk_size, file);
+        if(written_bytes != transfer->chunk_size)
         {
             DMOD_LOG_ERROR("Cannot receive file - cannot write data to %s\n", dst_file_path);
             result = false;
             break;
         }
-        transfer.offset += transfer.chunk_size;
+        transfer->offset += transfer->chunk_size;
     }
 
     context_lock(ctx);
@@ -1012,6 +1031,7 @@ bool dmlog_file_receive(dmlog_ctx_t ctx, const char* src_file_path, const char* 
 
     Dmod_Free(buffer);
     Dmod_FileClose(file);
+    Dmod_Free(transfer);
 
     return result;
 }

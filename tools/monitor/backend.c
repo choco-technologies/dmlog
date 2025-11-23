@@ -48,7 +48,7 @@ int backend_disconnect(backend_type_t type, int socket)
     return backends[type]->disconnect(socket);
 }
 
-int backend_read_memory(backend_type_t type, int socket, uint32_t address, void *buffer, size_t length)
+int backend_read_memory(backend_type_t type, int socket, uint64_t address, void *buffer, size_t length)
 {
     if(type >= BACKEND_TYPE__COUNT || backends[type] == NULL)
     {
@@ -57,7 +57,7 @@ int backend_read_memory(backend_type_t type, int socket, uint32_t address, void 
     return backends[type]->read_memory(socket, address, buffer, length);
 }
 
-int backend_write_memory(backend_type_t type, int socket, uint32_t address, const void *buffer, size_t length)
+int backend_write_memory(backend_type_t type, int socket, uint64_t address, const void *buffer, size_t length)
 {
     if(type >= BACKEND_TYPE__COUNT || backends[type] == NULL)
     {

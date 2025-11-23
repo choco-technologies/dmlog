@@ -99,6 +99,7 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Error: Buffer size exceeds maximum (%d bytes)\n", MAX_BUFFER_SIZE);
         return 1;
     }
+    Dmod_SetLogLevel(Dmod_LogLevel_Verbose);
 
     // Create dmlog buffer using static global buffer
     g_dmlog_ctx = dmlog_create(g_log_buffer, buffer_size);
@@ -261,8 +262,8 @@ int main(int argc, char *argv[]) {
 
     fclose(f);
 
-    printf("Test scenario completed. Flushing final logs...\n");
-    dmlog_flush(g_dmlog_ctx);
+    printf("Test scenario completed. Closing monitor...\n");
+    dmlog_exit_monitor(g_dmlog_ctx);
     
     // Give monitor time to read final logs and process any pending inputs
     // For tests with multiple inputs, we need a bit more time

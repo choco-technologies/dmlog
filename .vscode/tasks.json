@@ -74,6 +74,7 @@
             "args": [
                 "-DCMAKE_BUILD_TYPE=Debug",
                 "-DDMLOG_BUILD_TOOLS=ON",
+                "-DDMLOG_BUILD_TESTS=ON",
                 "-S",
                 "${workspaceFolder}",
                 "-B",

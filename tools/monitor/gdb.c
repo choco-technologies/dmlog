@@ -497,7 +497,7 @@ static int gdb_decode_rle(const char *input, char *output, size_t output_size)
  * @param length Number of bytes to read
  * @return int 0 on success, -1 on failure
  */
-int gdb_read_memory(int socket, uint32_t address, void *buffer, size_t length)
+int gdb_read_memory(int socket, uint64_t address, void *buffer, size_t length)
 {
     // Interrupt target if it's running to allow memory access
     bool was_running = target_is_running;
@@ -509,7 +509,7 @@ int gdb_read_memory(int socket, uint32_t address, void *buffer, size_t length)
     
     // Format: m<addr>,<length>
     char command[64];
-    snprintf(command, sizeof(command), "m%x,%zx", address, length);
+    snprintf(command, sizeof(command), "m%lx,%zx", address, length);
     
     if (gdb_send_packet(socket, command) < 0) {
         // Resume if we interrupted
@@ -614,7 +614,7 @@ int gdb_read_memory(int socket, uint32_t address, void *buffer, size_t length)
  * @param length Number of bytes to write
  * @return int 0 on success, -1 on failure
  */
-int gdb_write_memory(int socket, uint32_t address, const void *buffer, size_t length)
+int gdb_write_memory(int socket, uint64_t address, const void *buffer, size_t length)
 {
     // Interrupt target if it's running to allow memory access
     bool was_running = target_is_running;

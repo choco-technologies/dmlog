@@ -37,6 +37,7 @@
 #define DMLOG_FLAG_FILE_SEND_REQ    0x00000040  /* FW requests sending a file to the host */
 #define DMLOG_FLAG_FILE_RECV_REQ    0x00000080  /* FW requests receiving a file from the host */
 #define DMLOG_FLAG_FILE_CHUNK_ACK   0x00000100  /* ACK flag set by host to acknowledge processing of the chunk */
+#define DMLOG_FLAG_EXIT_REQUESTED   0x80000000  /* Monitor exit requested */
 
 /**
  * @brief Input request flags
@@ -64,6 +65,7 @@ typedef struct
     volatile uint32_t chunk_size;                                   //!< Size of each file chunk
     volatile uint32_t total_size;                                   //!< Total size of the file
     volatile uint32_t offset;                                       //!< Current offset in the file
+    volatile int32_t  status;                                       //!< Status of the file transfer (errno)
     char host_file_name[DMLOG_MAX_FILE_PATH_LENGTH];   //!< File name on the host (source or destination)
 } dmlog_file_transfer_t;
 
@@ -121,6 +123,7 @@ DMOD_BUILTIN_API(dmlog, 1.0, const char*,      _get_ref_buffer,    (dmlog_ctx_t 
 DMOD_BUILTIN_API(dmlog, 1.0, char,             _getc,              (dmlog_ctx_t ctx) );
 DMOD_BUILTIN_API(dmlog, 1.0, bool,             _gets,              (dmlog_ctx_t ctx, char* s, size_t max_len) );
 DMOD_BUILTIN_API(dmlog, 1.0, void,             _clear,             (dmlog_ctx_t ctx) );
+DMOD_BUILTIN_API(dmlog, 1.0, void,             _exit_monitor,      (dmlog_ctx_t ctx) );
 
 /* Input (PC to firmware) API */
 DMOD_BUILTIN_API(dmlog, 1.0, bool,             _input_available,   (dmlog_ctx_t ctx) );

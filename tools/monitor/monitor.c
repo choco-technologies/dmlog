@@ -8,6 +8,7 @@
 #include "gdb.h"
 #include <termios.h>
 #include <fcntl.h>
+#include <errno.h>
 
 /**
  * @brief Configure terminal input mode (echo and line mode)
@@ -502,14 +503,30 @@ void monitor_run(monitor_ctx_t *ctx, bool show_timestamps, bool blocking_mode)
             }
             
             // Check for input request from firmware (after printing all output)
-            if(!monitor_handle_input_request(ctx))
+            bool input_requested = (ctx->ring.flags & DMLOG_FLAG_INPUT_REQUESTED) != 0;
+            if(input_requested && !monitor_handle_input_request(ctx))
             {
+                TRACE_ERROR("Failed to handle input request\n");
                 return; // exit on EOF
             }
 
-            if(!monitor_handle_send_file_request(ctx))
+            bool send_file_requested = (ctx->ring.flags & DMLOG_FLAG_FILE_SEND_REQ) != 0;
+            if(send_file_requested && !monitor_handle_send_file_request(ctx))
             {
+                TRACE_ERROR("Failed to handle file send request\n");
                 return; // exit on failure
+            }
+            bool receive_file_requested = (ctx->ring.flags & DMLOG_FLAG_FILE_RECV_REQ) != 0;
+            if(receive_file_requested && !monitor_handle_receive_file_request(ctx))
+            {
+                TRACE_ERROR("Failed to handle file receive request\n");
+                return; // exit on failure
+            }
+
+            if(ctx->ring.flags & DMLOG_FLAG_EXIT_REQUESTED)
+            {
+                TRACE_VERBOSE("Exit requested (flags=0x%08X), returning from wait\n", ctx->ring.flags);
+                return;
             }
 
             usleep(100000); // Sleep briefly to allow data to accumulate
@@ -904,7 +921,7 @@ bool monitor_handle_send_file_request(monitor_ctx_t *ctx)
     uint64_t file_transfer_addr = ctx->ring.file_transfer;
     if(backend_read_memory(ctx->backend_type, ctx->socket, file_transfer_addr, &file_transfer, sizeof(dmlog_file_transfer_t)) < 0)
     {
-        TRACE_ERROR("Failed to read file transfer structure from target\n");
+        TRACE_ERROR("Failed to read file transfer structure from target at address 0x%lX\n", file_transfer_addr);
         return false;
     }
 
@@ -992,6 +1009,12 @@ bool monitor_handle_send_file_request(monitor_ctx_t *ctx)
     return true;
 }
 
+/**
+ * @brief Handle file receive request from firmware
+ * 
+ * @param ctx Pointer to the monitor context
+ * @return true on success, false on failure
+ */
 bool monitor_handle_receive_file_request(monitor_ctx_t *ctx)
 {
     if(!(ctx->ring.flags &(DMLOG_FLAG_FILE_RECV_REQ)))
@@ -1007,13 +1030,30 @@ bool monitor_handle_receive_file_request(monitor_ctx_t *ctx)
         TRACE_ERROR("Failed to read file transfer structure from target\n");
         return false;
     }
+    TRACE_INFO("File Transfer Request: host_file_name='%s', offset=%llu, chunk_size=%u, buffer_address=0x%08X\n",
+        file_transfer.host_file_name,
+        (unsigned long long)file_transfer.offset,
+        file_transfer.chunk_size,
+        (uint32_t)file_transfer.buffer_address);
 
     if(file_transfer.chunk_size == 0)
     {
         TRACE_ERROR("Invalid file transfer parameters: chunk_size=%u\n",
             file_transfer.chunk_size);
-        return false;
+        file_transfer.status = -EINVAL;
+        return monitor_send_file_transfer(ctx, &file_transfer, DMLOG_FLAG_FILE_RECV_REQ);
     }
+
+    if(!Dmod_FileAvailable(file_transfer.host_file_name))
+    {
+        TRACE_ERROR("Local file '%s' does not exist for file transfer\n", file_transfer.host_file_name);
+        file_transfer.status = -ENOENT;
+        return monitor_send_file_transfer(ctx, &file_transfer, DMLOG_FLAG_FILE_RECV_REQ);
+    }
+
+    TRACE_INFO("Local file '%s' size: %llu bytes\n",
+        file_transfer.host_file_name,
+        (unsigned long long)file_transfer.total_size);
 
     void* file_data = Dmod_Malloc(file_transfer.chunk_size);
     if(file_data == NULL)
@@ -1030,6 +1070,9 @@ bool monitor_handle_receive_file_request(monitor_ctx_t *ctx)
         return false;
     }
 
+    file_transfer.total_size = Dmod_FileSize(file);
+    file_transfer.status = 0;
+
     if(Dmod_FileSeek(file, file_transfer.offset, SEEK_SET) != 0)
     {
         TRACE_ERROR("Failed to seek to offset %llu in local file '%s'\n",
@@ -1041,23 +1084,22 @@ bool monitor_handle_receive_file_request(monitor_ctx_t *ctx)
     }
 
     size_t read_bytes = Dmod_FileRead(file_data, 1, file_transfer.chunk_size, file);
-    if(read_bytes != file_transfer.chunk_size)
-    {
-        TRACE_ERROR("Failed to read %u bytes from local file '%s', only read %zu bytes\n",
-            file_transfer.chunk_size,
-            file_transfer.host_file_name,
-            read_bytes);
-        Dmod_FileClose(file);
-        Dmod_Free(file_data);
-        return false;
-    }
-
+    file_transfer.chunk_size = (uint32_t)read_bytes;
+    file_transfer.status = 0;
     Dmod_FileClose(file);
-    if(backend_write_memory(ctx->backend_type, ctx->socket, (uint32_t)file_transfer.buffer_address, file_data, file_transfer.chunk_size) < 0)
+
+    if(read_bytes == 0)
     {
+        TRACE_WARN("Empty file read from local file '%s' at offset %llu\n",
+            file_transfer.host_file_name,
+            (unsigned long long)file_transfer.offset);
+    }
+    else if(backend_write_memory(ctx->backend_type, ctx->socket, (uint32_t)file_transfer.buffer_address, file_data, file_transfer.chunk_size) <= 0)
+    {
+        file_transfer.status = -EIO;
         TRACE_ERROR("Failed to write file data to target buffer\n");
         Dmod_Free(file_data);
-        return false;
+        return monitor_send_file_transfer(ctx, &file_transfer, DMLOG_FLAG_FILE_RECV_REQ);
     }
 
     Dmod_Free(file_data);
@@ -1065,13 +1107,51 @@ bool monitor_handle_receive_file_request(monitor_ctx_t *ctx)
         file_transfer.chunk_size,
         file_transfer.host_file_name,
         (unsigned long long)file_transfer.offset);
-    // Clear the FILE_RECV_REQ flag
-    uint32_t new_flags = ctx->ring.flags & ~DMLOG_FLAG_FILE_RECV_REQ;
-    if(backend_write_memory(ctx->backend_type, ctx->socket, ctx->ring_address + offsetof(dmlog_ring_t, flags), &new_flags, sizeof(uint32_t)) < 0)
+    if(!monitor_send_file_transfer(ctx, &file_transfer, DMLOG_FLAG_FILE_RECV_REQ))
     {
-        TRACE_ERROR("Failed to clear FILE_RECV_REQ flag\n");
+        TRACE_ERROR("Failed to send file transfer response to target\n");
         return false;
     }
+
+    return true;
+}
+
+/**
+ * @brief Send a file transfer request to the firmware
+ * 
+ * @param ctx Pointer to the monitor context
+ * @param transfer Pointer to the file transfer structure
+ * @param flags Flags to set for the file transfer request
+ * @return true on success, false on failure
+ */
+bool monitor_send_file_transfer(monitor_ctx_t* ctx, const dmlog_file_transfer_t* transfer, uint32_t flags)
+{
+    if(transfer == NULL)
+    {
+        TRACE_ERROR("Invalid file transfer parameters\n");
+        return false;
+    }
+
+    TRACE_INFO("Sending file transfer response to target: host_file_name='%s', offset=%llu, chunk_size=%u, status=%d\n",
+        transfer->host_file_name,
+        (unsigned long long)transfer->offset,
+        transfer->chunk_size,
+        transfer->status);
+
+    if(backend_write_memory(ctx->backend_type, ctx->socket, ctx->ring.file_transfer, transfer, sizeof(dmlog_file_transfer_t)) < 0)
+    {
+        TRACE_ERROR("Failed to write file transfer structure to target\n");
+        return false;
+    }
+
+    // Set the appropriate flag
+    uint32_t new_flags = ctx->ring.flags & ~(flags);
+    if(backend_write_memory(ctx->backend_type, ctx->socket, ctx->ring_address + offsetof(dmlog_ring_t, flags), &new_flags, sizeof(uint32_t)) < 0)
+    {
+        TRACE_ERROR("Failed to set file transfer request flag\n");
+        return false;
+    }
+
     // Update local cache
     ctx->ring.flags = new_flags;
 
@@ -1084,5 +1164,7 @@ bool monitor_handle_receive_file_request(monitor_ctx_t *ctx)
             // Don't fail - the input is written, just might not be processed immediately
         }
     }
+
+    TRACE_INFO("File transfer request sent successfully\n");
     return true;
 }

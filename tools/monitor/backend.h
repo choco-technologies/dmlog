@@ -58,7 +58,7 @@ typedef struct
      * @param length Number of bytes to read
      * @return int 0 on success, -1 on failure
      */
-    int (*read_memory)(int socket, uint32_t address, void *buffer, size_t length);
+    int (*read_memory)(int socket, uint64_t address, void *buffer, size_t length);
 
     /**
      * @brief Write memory to target via the backend.
@@ -69,7 +69,7 @@ typedef struct
      * @param length Number of bytes to write
      * @return int 0 on success, -1 on failure
      */
-    int (*write_memory)(int socket, uint32_t address, const void *buffer, size_t length); 
+    int (*write_memory)(int socket, uint64_t address, const void *buffer, size_t length); 
 } backend_if_t;
 
 extern backend_if_t backend_openocd;
@@ -104,7 +104,7 @@ extern int backend_disconnect(backend_type_t type, int socket);
  * @param length Number of bytes to read.
  * @return int 0 on success, -1 on failure.
  */
-extern int backend_read_memory(backend_type_t type, int socket, uint32_t address, void *buffer, size_t length);
+extern int backend_read_memory(backend_type_t type, int socket, uint64_t address, void *buffer, size_t length);
 
 /**
  * @brief Write memory to target via the specified backend.
@@ -116,7 +116,7 @@ extern int backend_read_memory(backend_type_t type, int socket, uint32_t address
  * @param length Number of bytes to write.
  * @return int 0 on success, -1 on failure.
  */
-extern int backend_write_memory(backend_type_t type, int socket, uint32_t address, const void *buffer, size_t length);
+extern int backend_write_memory(backend_type_t type, int socket, uint64_t address, const void *buffer, size_t length);
 
 /**
  * @brief Convert backend type to string representation.

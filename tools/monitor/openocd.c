@@ -408,11 +408,11 @@ int openocd_send_command(int socket, const char *cmd, char *response, size_t res
  * @param length Number of bytes to read
  * @return int 0 on success, -1 on failure
  */
-int openocd_read_memory(int socket, uint32_t address, void *buffer, size_t length)
+int openocd_read_memory(int socket, uint64_t address, void *buffer, size_t length)
 {
     char cmd[64];
     size_t word_count = (length + 3) / 4; // Number of 32-bit words to read
-    snprintf(cmd, sizeof(cmd), "mdw 0x%08X %zu", address, word_count);
+    snprintf(cmd, sizeof(cmd), "mdw 0x%08X %zu", (uint32_t)address, word_count);
     size_t response_size = length * 5 * 2 + 128;
     char* response = malloc(response_size); // Allocate enough space for response
     if(response == NULL)
@@ -465,14 +465,14 @@ int openocd_read_memory(int socket, uint32_t address, void *buffer, size_t lengt
  * @param length Number of bytes to write
  * @return int 0 on success, -1 on failure
  */
-int openocd_write_memory(int socket, uint32_t address, const void *buffer, size_t length)
+int openocd_write_memory(int socket, uint64_t address, const void *buffer, size_t length)
 {
     char cmd[128];
     size_t word_count = length / 4; 
     for(size_t i = 0; i < word_count; i++)
     {
         uint32_t word = *((uint32_t*)((uint8_t*)buffer + i * 4));
-        uint32_t addr = address + i * 4;
+        uint32_t addr = (uint32_t)address + i * 4;
         snprintf(cmd, sizeof(cmd), "mww 0x%08X 0x%08X", addr, word);
         char response[256] = {0};
         if(openocd_send_command(socket, cmd, response, sizeof(response)) < 0)
