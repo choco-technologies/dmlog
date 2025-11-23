@@ -99,6 +99,10 @@ run_test() {
     local expected_output="/tmp/dmlog_test_${scenario_name}_expected.txt"
     local input_data="/tmp/dmlog_test_${scenario_name}_input.txt"
     
+    rm -f "$test_output" "$app_output" "$expected_output" "$input_data"
+
+    echo "Preparing test scenario..."
+
     # Generate expected output from scenario file
     # Skip comments and convert special markers to expected echo
     awk '
@@ -109,16 +113,24 @@ run_test() {
             next 
         }
         /<file_send:/ {
-            # Extract paths from <file_send:src:dst>
-            match($0, /<file_send:([^:]+):([^>]+)>/, paths)
-            print "Sending file: " paths[1] " -> " paths[2]
+            # Extract paths from <file_send:src:dst> - mawk compatible
+            gsub(/<file_send:/, "", $0)
+            gsub(/>/, "", $0)
+            split($0, parts, ":")
+            src_path = parts[1]
+            dst_path = parts[2]
+            print "Sending file: " src_path " -> " dst_path
             print "File send successful"
             next
         }
         /<file_recv:/ {
-            # Extract paths from <file_recv:src:dst>
-            match($0, /<file_recv:([^:]+):([^>]+)>/, paths)
-            print "Receiving file: " paths[1] " -> " paths[2]
+            # Extract paths from <file_recv:src:dst> - mawk compatible
+            gsub(/<file_recv:/, "", $0)
+            gsub(/>/, "", $0)
+            split($0, parts, ":")
+            src_path = parts[1]
+            dst_path = parts[2]
+            print "Receiving file: " src_path " -> " dst_path
             print "File receive successful"
             next
         }
