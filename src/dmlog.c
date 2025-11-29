@@ -1065,4 +1065,80 @@ DMOD_INPUT_API_DECLARATION( Dmod, 1.0, int  ,_Printf, ( const char* Format, ... 
     return written;
 }
 
+/**
+ * @brief Built-in getc function for DMLoG.
+ * 
+ * Reads a single character from the dmlog input buffer.
+ * If no input is available, requests input from the host and waits.
+ * 
+ * @return int Character read from input, or EOF if no default context.
+ */
+DMOD_INPUT_API_DECLARATION( Dmod, 1.0, int  ,_Getc, ( void ) )
+{
+    dmlog_ctx_t ctx = dmlog_get_default();
+    if(ctx == NULL)
+    {
+        return EOF;
+    }
+    
+    // Try to read first (in case there's already buffered data)
+    char c = dmlog_input_getc(ctx);
+    if(c != '\0')
+    {
+        return (unsigned char)c;
+    }
+    
+    // No data available - request input and wait
+    dmlog_input_request(ctx, DMLOG_INPUT_REQUEST_FLAG_DEFAULT);
+    
+    // Wait for input to be available in the ring buffer
+    while(!dmlog_input_available(ctx))
+    {
+        // Busy wait for input
+    }
+    
+    c = dmlog_input_getc(ctx);
+    return (c == '\0') ? EOF : (unsigned char)c;
+}
+
+/**
+ * @brief Built-in gets function for DMLoG.
+ * 
+ * Reads a line of input from the dmlog input buffer.
+ * If no input is available, requests input from the host and waits.
+ * 
+ * @param Buffer Pointer to buffer where the string will be stored.
+ * @param Size Maximum number of characters to read (including null terminator).
+ * @return char* Pointer to buffer on success, NULL on error.
+ */
+DMOD_INPUT_API_DECLARATION( Dmod, 1.0, char* ,_Gets, ( char* Buffer, int Size ) )
+{
+    dmlog_ctx_t ctx = dmlog_get_default();
+    if(ctx == NULL || Buffer == NULL || Size <= 0)
+    {
+        return NULL;
+    }
+    
+    // Try to read first (in case there's already buffered data)
+    if(dmlog_input_gets(ctx, Buffer, (size_t)Size))
+    {
+        return Buffer;
+    }
+    
+    // No data available - request input and wait
+    dmlog_input_request(ctx, DMLOG_INPUT_REQUEST_FLAG_LINE_MODE);
+    
+    // Wait for input to be available in the ring buffer
+    while(!dmlog_input_available(ctx))
+    {
+        // Busy wait for input
+    }
+    
+    if(dmlog_input_gets(ctx, Buffer, (size_t)Size))
+    {
+        return Buffer;
+    }
+    return NULL;
+}
+
 #endif // DMLOG_DONT_IMPLEMENT_DMOD_API

@@ -75,6 +75,23 @@ target_include_directories(test_input
 )
 
 # =====================================================================
+#               Test: DMOD Input API Test
+# =====================================================================
+add_executable(test_dmod_input_api test_dmod_input_api.c dmod_test_stubs.c)
+target_link_libraries(test_dmod_input_api 
+    PRIVATE 
+        dmlog
+        dmod_system
+        dmod_common
+        dmod_fastlz
+        dmod_inc
+)
+target_include_directories(test_dmod_input_api
+    PRIVATE
+        ${CMAKE_SOURCE_DIR}/include
+)
+
+# =====================================================================
 #               Test: Interactive Test Application
 # =====================================================================
 add_executable(test_app_interactive test_app_interactive.c dmod_test_stubs.c)
@@ -100,6 +117,7 @@ add_test(NAME dmlog_unit   COMMAND test_dmlog_unit)
 add_test(NAME simple_test  COMMAND test_simple)
 add_test(NAME benchmark    COMMAND test_benchmark)
 add_test(NAME input_test   COMMAND test_input)
+add_test(NAME dmod_input_api_test COMMAND test_dmod_input_api)
 
 # =====================================================================
 #               Coverage Support (optional)
@@ -115,6 +133,7 @@ if(ENABLE_COVERAGE)
         target_link_libraries(test_simple PRIVATE gcov)
         target_link_libraries(test_benchmark PRIVATE gcov)
         target_link_libraries(test_input PRIVATE gcov)
+        target_link_libraries(test_dmod_input_api PRIVATE gcov)
         target_link_libraries(test_app_interactive PRIVATE gcov)
         
         # Add custom target for generating coverage report
