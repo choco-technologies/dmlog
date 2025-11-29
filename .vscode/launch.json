@@ -8,7 +8,8 @@
             "program": "${workspaceFolder}/build/tools/monitor/dmlog_monitor",
             "args": [
                 "--gdb", 
-                "--addr", "0x00000000200106b8",
+                "--addr", "0x00000000004390a0",
+                "--port", "1234"
             ],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",

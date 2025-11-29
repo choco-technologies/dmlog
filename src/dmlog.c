@@ -1066,6 +1066,16 @@ DMOD_INPUT_API_DECLARATION( Dmod, 1.0, int  ,_Printf, ( const char* Format, ... 
 }
 
 /**
+ * @brief Simple delay function for busy-waiting.
+ * 
+ * @param cycles Number of cycles to wait.
+ */
+static void delay(int cycles)
+{
+    for(volatile int i = 0; i < cycles; i++);
+}
+
+/**
  * @brief Built-in getc function for DMLoG.
  * 
  * Reads a single character from the dmlog input buffer.
@@ -1081,24 +1091,15 @@ DMOD_INPUT_API_DECLARATION( Dmod, 1.0, int  ,_Getc, ( void ) )
         return EOF;
     }
     
-    // Try to read first (in case there's already buffered data)
-    char c = dmlog_input_getc(ctx);
-    if(c != '\0')
-    {
-        return (unsigned char)c;
-    }
-    
-    // No data available - request input and wait
-    dmlog_input_request(ctx, DMLOG_INPUT_REQUEST_FLAG_DEFAULT);
-    
-    // Wait for input to be available in the ring buffer
+    char c;
     while(!dmlog_input_available(ctx))
     {
-        // Busy wait for input
+        dmlog_input_request(ctx, DMLOG_INPUT_REQUEST_FLAG_ECHO_OFF);
+        delay(1000);
     }
     
     c = dmlog_input_getc(ctx);
-    return (c == '\0') ? EOF : (unsigned char)c;
+    return (int)c;
 }
 
 /**
@@ -1118,27 +1119,13 @@ DMOD_INPUT_API_DECLARATION( Dmod, 1.0, char* ,_Gets, ( char* Buffer, int Size ) 
     {
         return NULL;
     }
-    
-    // Try to read first (in case there's already buffered data)
-    if(dmlog_input_gets(ctx, Buffer, (size_t)Size))
-    {
-        return Buffer;
-    }
-    
-    // No data available - request input and wait
-    dmlog_input_request(ctx, DMLOG_INPUT_REQUEST_FLAG_LINE_MODE);
-    
-    // Wait for input to be available in the ring buffer
     while(!dmlog_input_available(ctx))
     {
-        // Busy wait for input
+        dmlog_input_request(ctx, DMLOG_INPUT_REQUEST_FLAG_LINE_MODE);
+        delay(1000);
     }
-    
-    if(dmlog_input_gets(ctx, Buffer, (size_t)Size))
-    {
-        return Buffer;
-    }
-    return NULL;
+
+    return dmlog_input_gets(ctx, Buffer, (size_t)Size) ? Buffer : NULL;
 }
 
 #endif // DMLOG_DONT_IMPLEMENT_DMOD_API
