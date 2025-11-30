@@ -38,6 +38,7 @@ jobs:
       run: |
         cd build
         ctest --output-on-failure --verbose
+      timeout-minutes: 10
     
     - name: Install gdbserver for integration tests
       run: |
@@ -96,6 +97,7 @@ jobs:
       run: |
         cd build
         ctest --output-on-failure
+      timeout-minutes: 10
     
     - name: Generate coverage report
       run: |
