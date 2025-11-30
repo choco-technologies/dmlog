@@ -23,8 +23,8 @@ struct dmlog_ctx
 /* Default DMLoG context */
 static dmlog_ctx_t default_ctx = NULL;
 
-/* Global stdin flags for Dmod API (ECHO and CANONICAL mode) */
-static uint32_t g_stdin_flags = DMOD_STDIN_FLAG_ECHO | DMOD_STDIN_FLAG_CANONICAL;
+/* Global stdin flags for Dmod API stored in dmlog format */
+static dmlog_input_request_flags_t g_stdin_flags = DMLOG_INPUT_REQUEST_FLAG_LINE_MODE;
 
 /**
  * @brief Lock the DMLoG context for exclusive access.
@@ -1086,7 +1086,7 @@ static void delay(int cycles)
  * 
  * Reads a single character from the dmlog input buffer.
  * If no input is available, requests input from the host and waits.
- * Uses global stdin flags for ECHO and CANONICAL mode settings.
+ * Uses global stdin flags for ECHO mode setting.
  * 
  * @return int Character read from input, or EOF if no default context.
  */
@@ -1098,14 +1098,8 @@ DMOD_INPUT_API_DECLARATION( Dmod, 1.0, int  ,_Getc, ( void ) )
         return EOF;
     }
     
-    // Convert global stdin flags to dmlog input request flags
-    dmlog_input_request_flags_t request_flags = DMLOG_INPUT_REQUEST_FLAG_DEFAULT;
-    if(!(g_stdin_flags & DMOD_STDIN_FLAG_ECHO))
-    {
-        request_flags |= DMLOG_INPUT_REQUEST_FLAG_ECHO_OFF;
-    }
-    // Note: For getc, we don't use LINE_MODE even if CANONICAL is set
-    // because getc reads single characters
+    // Use global flags but without LINE_MODE for single character read
+    dmlog_input_request_flags_t request_flags = g_stdin_flags & ~DMLOG_INPUT_REQUEST_FLAG_LINE_MODE;
     
     char c;
     while(!dmlog_input_available(ctx))
@@ -1123,7 +1117,7 @@ DMOD_INPUT_API_DECLARATION( Dmod, 1.0, int  ,_Getc, ( void ) )
  * 
  * Reads a line of input from the dmlog input buffer.
  * If no input is available, requests input from the host and waits.
- * Uses global stdin flags for ECHO and CANONICAL mode settings.
+ * Uses global stdin flags for ECHO and LINE mode settings.
  * 
  * @param Buffer Pointer to buffer where the string will be stored.
  * @param Size Maximum number of characters to read (including null terminator).
@@ -1137,20 +1131,9 @@ DMOD_INPUT_API_DECLARATION( Dmod, 1.0, char* ,_Gets, ( char* Buffer, int Size ) 
         return NULL;
     }
     
-    // Convert global stdin flags to dmlog input request flags
-    dmlog_input_request_flags_t request_flags = DMLOG_INPUT_REQUEST_FLAG_DEFAULT;
-    if(!(g_stdin_flags & DMOD_STDIN_FLAG_ECHO))
-    {
-        request_flags |= DMLOG_INPUT_REQUEST_FLAG_ECHO_OFF;
-    }
-    if(g_stdin_flags & DMOD_STDIN_FLAG_CANONICAL)
-    {
-        request_flags |= DMLOG_INPUT_REQUEST_FLAG_LINE_MODE;
-    }
-    
     while(!dmlog_input_available(ctx))
     {
-        dmlog_input_request(ctx, request_flags);
+        dmlog_input_request(ctx, g_stdin_flags);
         delay(1000);
     }
 
@@ -1161,12 +1144,27 @@ DMOD_INPUT_API_DECLARATION( Dmod, 1.0, char* ,_Gets, ( char* Buffer, int Size ) 
  * @brief Get the current stdin flags.
  * 
  * Returns the current stdin flags that control ECHO and CANONICAL mode.
+ * Converts internal dmlog flags to DMOD_STDIN_FLAG_* format.
  * 
- * @return uint32_t Current stdin flags.
+ * @return uint32_t Current stdin flags (DMOD_STDIN_FLAG_ECHO, DMOD_STDIN_FLAG_CANONICAL).
  */
 DMOD_INPUT_API_DECLARATION( Dmod, 1.0, uint32_t, _Stdin_GetFlags, ( void ) )
 {
-    return g_stdin_flags;
+    uint32_t flags = 0;
+    
+    // Convert dmlog flags to DMOD_STDIN_FLAG format
+    // ECHO_OFF in dmlog means no ECHO flag in DMOD
+    if(!(g_stdin_flags & DMLOG_INPUT_REQUEST_FLAG_ECHO_OFF))
+    {
+        flags |= DMOD_STDIN_FLAG_ECHO;
+    }
+    // LINE_MODE in dmlog means CANONICAL in DMOD
+    if(g_stdin_flags & DMLOG_INPUT_REQUEST_FLAG_LINE_MODE)
+    {
+        flags |= DMOD_STDIN_FLAG_CANONICAL;
+    }
+    
+    return flags;
 }
 
 /**
@@ -1174,13 +1172,27 @@ DMOD_INPUT_API_DECLARATION( Dmod, 1.0, uint32_t, _Stdin_GetFlags, ( void ) )
  * 
  * Sets the stdin flags that control ECHO and CANONICAL mode for
  * subsequent Dmod_Getc and Dmod_Gets calls.
+ * Converts DMOD_STDIN_FLAG_* format to internal dmlog flags.
  * 
  * @param Flags New stdin flags (DMOD_STDIN_FLAG_ECHO, DMOD_STDIN_FLAG_CANONICAL).
  * @return int 0 on success.
  */
 DMOD_INPUT_API_DECLARATION( Dmod, 1.0, int, _Stdin_SetFlags, ( uint32_t Flags ) )
 {
-    g_stdin_flags = Flags;
+    // Convert DMOD_STDIN_FLAG format to dmlog flags
+    g_stdin_flags = DMLOG_INPUT_REQUEST_FLAG_DEFAULT;
+    
+    // No ECHO flag in DMOD means ECHO_OFF in dmlog
+    if(!(Flags & DMOD_STDIN_FLAG_ECHO))
+    {
+        g_stdin_flags |= DMLOG_INPUT_REQUEST_FLAG_ECHO_OFF;
+    }
+    // CANONICAL in DMOD means LINE_MODE in dmlog
+    if(Flags & DMOD_STDIN_FLAG_CANONICAL)
+    {
+        g_stdin_flags |= DMLOG_INPUT_REQUEST_FLAG_LINE_MODE;
+    }
+    
     return 0;
 }
 
