@@ -1094,7 +1094,7 @@ DMOD_INPUT_API_DECLARATION( Dmod, 1.0, int  ,_Getc, ( void ) )
     char c;
     while(!dmlog_input_available(ctx))
     {
-        dmlog_input_request(ctx, DMLOG_INPUT_REQUEST_FLAG_ECHO_OFF);
+        dmlog_input_request(ctx, DMLOG_INPUT_REQUEST_FLAG_DEFAULT);
         delay(1000);
     }
     

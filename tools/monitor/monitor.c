@@ -32,20 +32,16 @@ static void configure_input_mode(bool echo, bool line_mode)
     if(line_mode)
     {
         tty.c_lflag |= ICANON;
-        // Restore blocking mode when in canonical (line) mode
-        int flags = fcntl(STDIN_FILENO, F_GETFL, 0);
-        fcntl(STDIN_FILENO, F_SETFL, flags & ~O_NONBLOCK);
     }
     else
     {
         tty.c_lflag &= ~ICANON;
+
         tty.c_cc[VMIN] = 1;  // Minimum number of characters to read
         tty.c_cc[VTIME] = 0; // No timeout
-        
-        // Keep stdin in blocking mode - don't set O_NONBLOCK
-        // This allows fgets() to wait for user input instead of failing immediately
+
         int flags = fcntl(STDIN_FILENO, F_GETFL, 0);
-        fcntl(STDIN_FILENO, F_SETFL, flags & ~O_NONBLOCK);
+        fcntl(STDIN_FILENO, F_SETFL, flags | O_NONBLOCK);
     }
     tcsetattr(STDIN_FILENO, TCSANOW, &tty);
 }
@@ -801,9 +797,17 @@ bool monitor_handle_input_request(monitor_ctx_t *ctx)
     while(true)
     {
         FILE* input_source = ctx->input_file ? ctx->input_file : stdin;
-        if(fgets(input_buffer, sizeof(input_buffer), input_source) != NULL)
+        if(line_mode || ctx->input_file)
         {
-            // Successfully read input
+            if(fgets(input_buffer, sizeof(input_buffer), input_source) != NULL)
+            {
+                // Successfully read input
+                break;
+            }
+        }
+        else 
+        {
+            while(fgets(input_buffer, sizeof(input_buffer), input_source) == NULL);
             break;
         }
         

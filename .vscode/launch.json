@@ -7,9 +7,8 @@
             "request": "launch",
             "program": "${workspaceFolder}/build/tools/monitor/dmlog_monitor",
             "args": [
-                "--gdb", 
-                "--addr", "0x00000000004390a0",
-                "--port", "1234"
+                "--addr", "0x0000000020010770",
+                "--port", "4444"
             ],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
