@@ -23,6 +23,9 @@ struct dmlog_ctx
 /* Default DMLoG context */
 static dmlog_ctx_t default_ctx = NULL;
 
+/* Global stdin flags for Dmod API (ECHO and CANONICAL mode) */
+static uint32_t g_stdin_flags = DMOD_STDIN_FLAG_ECHO | DMOD_STDIN_FLAG_CANONICAL;
+
 /**
  * @brief Lock the DMLoG context for exclusive access.
  * 
@@ -692,7 +695,10 @@ bool dmlog_input_available(dmlog_ctx_t ctx)
     Dmod_EnterCritical();
     if(dmlog_is_valid(ctx))
     {
-        result = (ctx->ring.input_tail_offset != ctx->ring.input_head_offset);
+        // Check both the ring buffer AND the internal read buffer
+        result = (ctx->ring.input_tail_offset != ctx->ring.input_head_offset) ||
+                 (ctx->input_read_entry_offset < DMOD_LOG_MAX_ENTRY_SIZE && 
+                  ctx->input_read_buffer[ctx->input_read_entry_offset] != '\0');
     }
     Dmod_ExitCritical();
     return result;
@@ -1080,6 +1086,7 @@ static void delay(int cycles)
  * 
  * Reads a single character from the dmlog input buffer.
  * If no input is available, requests input from the host and waits.
+ * Uses global stdin flags for ECHO and CANONICAL mode settings.
  * 
  * @return int Character read from input, or EOF if no default context.
  */
@@ -1091,10 +1098,19 @@ DMOD_INPUT_API_DECLARATION( Dmod, 1.0, int  ,_Getc, ( void ) )
         return EOF;
     }
     
+    // Convert global stdin flags to dmlog input request flags
+    dmlog_input_request_flags_t request_flags = DMLOG_INPUT_REQUEST_FLAG_DEFAULT;
+    if(!(g_stdin_flags & DMOD_STDIN_FLAG_ECHO))
+    {
+        request_flags |= DMLOG_INPUT_REQUEST_FLAG_ECHO_OFF;
+    }
+    // Note: For getc, we don't use LINE_MODE even if CANONICAL is set
+    // because getc reads single characters
+    
     char c;
     while(!dmlog_input_available(ctx))
     {
-        dmlog_input_request(ctx, DMLOG_INPUT_REQUEST_FLAG_DEFAULT);
+        dmlog_input_request(ctx, request_flags);
         delay(1000);
     }
     
@@ -1107,6 +1123,7 @@ DMOD_INPUT_API_DECLARATION( Dmod, 1.0, int  ,_Getc, ( void ) )
  * 
  * Reads a line of input from the dmlog input buffer.
  * If no input is available, requests input from the host and waits.
+ * Uses global stdin flags for ECHO and CANONICAL mode settings.
  * 
  * @param Buffer Pointer to buffer where the string will be stored.
  * @param Size Maximum number of characters to read (including null terminator).
@@ -1119,13 +1136,52 @@ DMOD_INPUT_API_DECLARATION( Dmod, 1.0, char* ,_Gets, ( char* Buffer, int Size ) 
     {
         return NULL;
     }
+    
+    // Convert global stdin flags to dmlog input request flags
+    dmlog_input_request_flags_t request_flags = DMLOG_INPUT_REQUEST_FLAG_DEFAULT;
+    if(!(g_stdin_flags & DMOD_STDIN_FLAG_ECHO))
+    {
+        request_flags |= DMLOG_INPUT_REQUEST_FLAG_ECHO_OFF;
+    }
+    if(g_stdin_flags & DMOD_STDIN_FLAG_CANONICAL)
+    {
+        request_flags |= DMLOG_INPUT_REQUEST_FLAG_LINE_MODE;
+    }
+    
     while(!dmlog_input_available(ctx))
     {
-        dmlog_input_request(ctx, DMLOG_INPUT_REQUEST_FLAG_LINE_MODE);
+        dmlog_input_request(ctx, request_flags);
         delay(1000);
     }
 
     return dmlog_input_gets(ctx, Buffer, (size_t)Size) ? Buffer : NULL;
+}
+
+/**
+ * @brief Get the current stdin flags.
+ * 
+ * Returns the current stdin flags that control ECHO and CANONICAL mode.
+ * 
+ * @return uint32_t Current stdin flags.
+ */
+DMOD_INPUT_API_DECLARATION( Dmod, 1.0, uint32_t, _Stdin_GetFlags, ( void ) )
+{
+    return g_stdin_flags;
+}
+
+/**
+ * @brief Set the stdin flags.
+ * 
+ * Sets the stdin flags that control ECHO and CANONICAL mode for
+ * subsequent Dmod_Getc and Dmod_Gets calls.
+ * 
+ * @param Flags New stdin flags (DMOD_STDIN_FLAG_ECHO, DMOD_STDIN_FLAG_CANONICAL).
+ * @return int 0 on success.
+ */
+DMOD_INPUT_API_DECLARATION( Dmod, 1.0, int, _Stdin_SetFlags, ( uint32_t Flags ) )
+{
+    g_stdin_flags = Flags;
+    return 0;
 }
 
 #endif // DMLOG_DONT_IMPLEMENT_DMOD_API
