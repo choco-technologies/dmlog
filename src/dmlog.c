@@ -990,7 +990,7 @@ bool dmlog_file_receive(dmlog_ctx_t ctx, const char* src_file_path, const char* 
     transfer->total_size = 0; // Will be set by the host
     
     bool result = true;
-    for(transfer->offset = 0; result && transfer->offset < transfer->total_size || transfer->total_size == 0; )
+    for(transfer->offset = 0; result && (transfer->offset < transfer->total_size || transfer->total_size == 0); )
     {
         transfer->chunk_size = DMLOG_FILE_TRANSFER_CHUNK_SIZE;
 

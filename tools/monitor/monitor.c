@@ -32,16 +32,20 @@ static void configure_input_mode(bool echo, bool line_mode)
     if(line_mode)
     {
         tty.c_lflag |= ICANON;
+        // Restore blocking mode when in canonical (line) mode
+        int flags = fcntl(STDIN_FILENO, F_GETFL, 0);
+        fcntl(STDIN_FILENO, F_SETFL, flags & ~O_NONBLOCK);
     }
     else
     {
         tty.c_lflag &= ~ICANON;
-
         tty.c_cc[VMIN] = 1;  // Minimum number of characters to read
         tty.c_cc[VTIME] = 0; // No timeout
-
+        
+        // Keep stdin in blocking mode - don't set O_NONBLOCK
+        // This allows fgets() to wait for user input instead of failing immediately
         int flags = fcntl(STDIN_FILENO, F_GETFL, 0);
-        fcntl(STDIN_FILENO, F_SETFL, flags | O_NONBLOCK);
+        fcntl(STDIN_FILENO, F_SETFL, flags & ~O_NONBLOCK);
     }
     tcsetattr(STDIN_FILENO, TCSANOW, &tty);
 }
@@ -851,15 +855,27 @@ bool monitor_handle_input_request(monitor_ctx_t *ctx)
         // Reading from stdin failed - check if error first, then EOF
         else if(ferror(stdin))
         {
-            // stdin I/O error
-            TRACE_ERROR("stdin I/O error, exiting\n");
+            // stdin I/O error - provide more detailed diagnostics
+            TRACE_ERROR("stdin I/O error detected\n");
+            TRACE_ERROR("  - Check if running in proper terminal environment\n");
+            TRACE_ERROR("  - Ensure stdin is not redirected or closed\n");
+            TRACE_ERROR("  - Try running interactively (not in background)\n");
+            if(isatty(STDIN_FILENO))
+            {
+                TRACE_ERROR("  - stdin is connected to a terminal\n");
+            }
+            else
+            {
+                TRACE_ERROR("  - stdin is NOT connected to a terminal (pipe/redirect?)\n");
+            }
+            perror("  - System error: ");
             configure_input_mode(true, true); // Restore terminal settings
             return false;
         }
         else if(feof(stdin))
         {
             // stdin reached EOF
-            TRACE_INFO("stdin reached EOF, exiting\n");
+            TRACE_INFO("stdin reached EOF (Ctrl+D or pipe closed)\n");
             configure_input_mode(true, true); // Restore terminal settings
             return false;
         }
