@@ -19,13 +19,25 @@
 void monitor_restore_terminal(void)
 {
     struct termios tty;
-    tcgetattr(STDIN_FILENO, &tty);
+    if(tcgetattr(STDIN_FILENO, &tty) < 0)
+    {
+        TRACE_WARN("Failed to get terminal attributes during restore\n");
+        return;
+    }
+    
     tty.c_lflag |= ECHO | ICANON;
-    tcsetattr(STDIN_FILENO, TCSANOW, &tty);
+    
+    if(tcsetattr(STDIN_FILENO, TCSANOW, &tty) < 0)
+    {
+        TRACE_WARN("Failed to set terminal attributes during restore\n");
+    }
     
     // Clear O_NONBLOCK
     int flags = fcntl(STDIN_FILENO, F_GETFL, 0);
-    fcntl(STDIN_FILENO, F_SETFL, flags & ~O_NONBLOCK);
+    if(flags >= 0)
+    {
+        fcntl(STDIN_FILENO, F_SETFL, flags & ~O_NONBLOCK);
+    }
 }
 
 /**

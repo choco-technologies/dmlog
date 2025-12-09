@@ -11,17 +11,15 @@
 #   define DMLOG_VERSION "unknown"
 #endif
 
-static volatile bool exit_requested = false;
-
 /**
  * @brief Signal handler for graceful shutdown
  */
 static void signal_handler(int signum)
 {
     (void)signum;
-    exit_requested = true;
     // Restore terminal settings immediately
     monitor_restore_terminal();
+    exit(0);
 }
 
 void usage(const char *progname)
