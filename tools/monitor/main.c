@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <signal.h>
 #include "dmlog.h"
 #include "monitor.h"
 #include "trace.h"
@@ -9,6 +10,19 @@
 #ifndef DMLOG_VERSION
 #   define DMLOG_VERSION "unknown"
 #endif
+
+static volatile bool exit_requested = false;
+
+/**
+ * @brief Signal handler for graceful shutdown
+ */
+static void signal_handler(int signum)
+{
+    (void)signum;
+    exit_requested = true;
+    // Restore terminal settings immediately
+    monitor_restore_terminal();
+}
 
 void usage(const char *progname)
 {
@@ -178,10 +192,17 @@ int main(int argc, char *argv[])
         }
     }
 
+    // Register signal handlers for graceful shutdown
+    signal(SIGINT, signal_handler);
+    signal(SIGTERM, signal_handler);
+
     monitor_run(ctx, show_timestamps, blocking_mode);
 
     TRACE_INFO("Exiting monitor\n");
 
+    // Restore terminal settings before exit
+    monitor_restore_terminal();
+    
     // Main monitoring loop would go here
     monitor_disconnect(ctx);
 
