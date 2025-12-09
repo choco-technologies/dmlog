@@ -788,7 +788,9 @@ bool monitor_handle_input_request(monitor_ctx_t *ctx)
 
     // Read input from file or stdin (no prompt, firmware should print its own prompt)
     char input_buffer[512];
-    bool echo_on = (ctx->ring.flags & DMLOG_FLAG_INPUT_ECHO_OFF) == 0;
+    // Always disable terminal echo - the firmware application handles echoing
+    // If we enable terminal echo here, characters will be duplicated (terminal echo + app echo)
+    bool echo_on = false;
     bool line_mode = (ctx->ring.flags & DMLOG_FLAG_INPUT_LINE_MODE) != 0;
     
     configure_input_mode(echo_on, line_mode);
