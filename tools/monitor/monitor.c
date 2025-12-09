@@ -788,7 +788,9 @@ bool monitor_handle_input_request(monitor_ctx_t *ctx)
 
     // Read input from file or stdin (no prompt, firmware should print its own prompt)
     char input_buffer[512];
-    // Always disable terminal echo - the firmware application handles echoing
+    // Always disable terminal echo - the firmware application is responsible for all echoing
+    // via the dmlog output buffer. The DMLOG_FLAG_INPUT_ECHO_OFF flag tells the firmware
+    // whether to echo characters back, not the monitor terminal.
     // If we enable terminal echo here, characters will be duplicated (terminal echo + app echo)
     bool echo_on = false;
     bool line_mode = (ctx->ring.flags & DMLOG_FLAG_INPUT_LINE_MODE) != 0;
