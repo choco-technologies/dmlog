@@ -41,5 +41,6 @@ bool monitor_handle_input_request(monitor_ctx_t *ctx);
 bool monitor_handle_send_file_request(monitor_ctx_t *ctx);
 bool monitor_handle_receive_file_request(monitor_ctx_t *ctx);
 bool monitor_send_file_transfer(monitor_ctx_t* ctx, const dmlog_file_transfer_t* transfer, uint32_t flags);
+void monitor_restore_terminal(void);
 
 #endif // MONITOR_H

@@ -11,6 +11,36 @@
 #include <errno.h>
 
 /**
+ * @brief Restore terminal to normal settings (echo on, line mode on, blocking)
+ * 
+ * This should be called before the monitor exits or on error conditions to ensure
+ * the terminal is left in a usable state.
+ */
+void monitor_restore_terminal(void)
+{
+    struct termios tty;
+    if(tcgetattr(STDIN_FILENO, &tty) < 0)
+    {
+        TRACE_WARN("Failed to get terminal attributes during restore\n");
+        return;
+    }
+    
+    tty.c_lflag |= ECHO | ICANON;
+    
+    if(tcsetattr(STDIN_FILENO, TCSANOW, &tty) < 0)
+    {
+        TRACE_WARN("Failed to set terminal attributes during restore\n");
+    }
+    
+    // Clear O_NONBLOCK
+    int flags = fcntl(STDIN_FILENO, F_GETFL, 0);
+    if(flags >= 0)
+    {
+        fcntl(STDIN_FILENO, F_SETFL, flags & ~O_NONBLOCK);
+    }
+}
+
+/**
  * @brief Configure terminal input mode (echo and line mode)
  * 
  * @param echo true to enable echo, false to disable
@@ -32,6 +62,9 @@ static void configure_input_mode(bool echo, bool line_mode)
     if(line_mode)
     {
         tty.c_lflag |= ICANON;
+        // Clear O_NONBLOCK when switching to line mode
+        int flags = fcntl(STDIN_FILENO, F_GETFL, 0);
+        fcntl(STDIN_FILENO, F_SETFL, flags & ~O_NONBLOCK);
     }
     else
     {
@@ -791,6 +824,7 @@ bool monitor_handle_input_request(monitor_ctx_t *ctx)
     bool echo_on = (ctx->ring.flags & DMLOG_FLAG_INPUT_ECHO_OFF) == 0;
     bool line_mode = (ctx->ring.flags & DMLOG_FLAG_INPUT_LINE_MODE) != 0;
     
+    // Configure terminal according to firmware's requested flags
     configure_input_mode(echo_on, line_mode);
     
     // Read input, potentially switching from init script to stdin
@@ -886,13 +920,13 @@ bool monitor_handle_input_request(monitor_ctx_t *ctx)
         // Other error - this should not happen in normal blocking mode
         // Continue trying to read
     }
-    configure_input_mode(true, true); // Restore terminal settings
-
+    
     // Send input to firmware
     size_t input_len = strlen(input_buffer);
     if(!monitor_send_input(ctx, input_buffer, input_len))
     {
         TRACE_ERROR("Failed to send input to firmware\n");
+        configure_input_mode(true, true); // Restore terminal settings before error return
         return false;
     }
 
@@ -901,11 +935,18 @@ bool monitor_handle_input_request(monitor_ctx_t *ctx)
     if(backend_write_memory(ctx->backend_type, ctx->socket, ctx->ring_address + offsetof(dmlog_ring_t, flags), &new_flags, sizeof(uint32_t)) < 0)
     {
         TRACE_ERROR("Failed to clear INPUT_REQUESTED flag\n");
+        configure_input_mode(true, true); // Restore terminal settings before error return
         return false;
     }
 
     // Update local cache
     ctx->ring.flags = new_flags;
+    
+    // Note: Terminal settings are NOT restored here. They will be reconfigured on the next
+    // input request based on the firmware's flags. This prevents a race condition where
+    // terminal echo is enabled between character-by-character reads, causing duplicate echoing.
+    // Terminal settings will be restored to normal (echo on, line mode on) when monitor exits
+    // or when firmware requests input with echo enabled.
 
     // Return true to continue monitoring, false to exit
     // Exit conditions:
