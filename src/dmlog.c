@@ -1,7 +1,6 @@
 #include "dmlog.h"
 #include "dmod.h"
 #include <string.h>
-#include <stdarg.h>
 
 #ifndef DMLOG_VERSION_STRING
 #   define DMLOG_VERSION_STRING "== dmlog ver. unknown ==\n"
@@ -1044,36 +1043,42 @@ bool dmlog_file_receive(dmlog_ctx_t ctx, const char* src_file_path, const char* 
 
 #ifndef DMLOG_DONT_IMPLEMENT_DMOD_API
 /**
- * @brief Built-in printf function for DMLoG.
- * 
- * @param Format Format string.
- * @param ... Additional arguments.
- * @return int Number of characters written, or -1 on failure.
+ * @brief Built-in raw kernel write function for DMLoG.
+ *
+ * Writes a buffer directly to the dmlog output ring, bypassing stdio and
+ * the Dmod_FileWrite/DMOD_STDOUT abstraction. This backs Dmod_Printf and
+ * every other DMOD output function that falls back to raw kernel I/O.
+ *
+ * @param Buffer Data to write.
+ * @param Size Number of bytes to write.
+ * @return size_t Number of bytes actually written.
  */
-DMOD_INPUT_API_DECLARATION( Dmod, 1.0, int  ,_Printf, ( const char* Format, ... ) )
+DMOD_INPUT_API_DECLARATION( Dmod, 1.0, size_t ,_WriteKernel, ( const void* Buffer, size_t Size ) )
 {
     dmlog_ctx_t ctx = dmlog_get_default();
-    if(ctx == NULL)
+    if(ctx == NULL || Buffer == NULL)
     {
-        return -1;
+        return 0;
     }
-    va_list args;
-    char temp_buffer[DMOD_LOG_MAX_ENTRY_SIZE];
-    va_start(args, Format);
-    int written = Dmod_VSnPrintf(temp_buffer, sizeof(temp_buffer), Format, args);
-    va_end(args);
 
-    if(written > 0)
+    const char* bytes = (const char*)Buffer;
+    size_t written = 0;
+    while(written < Size)
     {
-        dmlog_puts(ctx, temp_buffer);
+        if(!dmlog_putc(ctx, bytes[written]))
+        {
+            break;
+        }
+        written++;
     }
+    dmlog_flush(ctx);
 
     return written;
 }
 
 /**
  * @brief Simple delay function for busy-waiting.
- * 
+ *
  * @param cycles Number of cycles to wait.
  */
 static void delay(int cycles)
@@ -1082,62 +1087,41 @@ static void delay(int cycles)
 }
 
 /**
- * @brief Built-in getc function for DMLoG.
- * 
- * Reads a single character from the dmlog input buffer.
- * If no input is available, requests input from the host and waits.
- * Uses global stdin flags for ECHO mode setting.
- * 
- * @return int Character read from input, or EOF if no default context.
+ * @brief Built-in raw kernel read function for DMLoG.
+ *
+ * Reads up to Size bytes directly from the dmlog input buffer, bypassing
+ * stdio and the Dmod_FileRead/DMOD_STDIN abstraction. If no input is
+ * available, requests input from the host (using the global stdin flags
+ * for ECHO/LINE mode) and waits. This backs Dmod_Getc, Dmod_Gets and every
+ * other DMOD input function that falls back to raw kernel I/O.
+ *
+ * @param Buffer Buffer to read into.
+ * @param Size Maximum number of bytes to read.
+ * @return size_t Number of bytes actually read.
  */
-DMOD_INPUT_API_DECLARATION( Dmod, 1.0, int  ,_Getc, ( void ) )
+DMOD_INPUT_API_DECLARATION( Dmod, 1.0, size_t ,_ReadKernel, ( void* Buffer, size_t Size ) )
 {
     dmlog_ctx_t ctx = dmlog_get_default();
-    if(ctx == NULL)
+    if(ctx == NULL || Buffer == NULL || Size == 0)
     {
-        return EOF;
+        return 0;
     }
-    
-    // Use global flags but without LINE_MODE for single character read
-    dmlog_input_request_flags_t request_flags = g_stdin_flags & ~DMLOG_INPUT_REQUEST_FLAG_LINE_MODE;
-    
-    char c;
-    while(!dmlog_input_available(ctx))
-    {
-        dmlog_input_request(ctx, request_flags);
-        delay(1000);
-    }
-    
-    c = dmlog_input_getc(ctx);
-    return (int)c;
-}
 
-/**
- * @brief Built-in gets function for DMLoG.
- * 
- * Reads a line of input from the dmlog input buffer.
- * If no input is available, requests input from the host and waits.
- * Uses global stdin flags for ECHO and LINE mode settings.
- * 
- * @param Buffer Pointer to buffer where the string will be stored.
- * @param Size Maximum number of characters to read (including null terminator).
- * @return char* Pointer to buffer on success, NULL on error.
- */
-DMOD_INPUT_API_DECLARATION( Dmod, 1.0, char* ,_Gets, ( char* Buffer, int Size ) )
-{
-    dmlog_ctx_t ctx = dmlog_get_default();
-    if(ctx == NULL || Buffer == NULL || Size <= 0)
-    {
-        return NULL;
-    }
-    
+    char* bytes = (char*)Buffer;
+
     while(!dmlog_input_available(ctx))
     {
         dmlog_input_request(ctx, g_stdin_flags);
         delay(1000);
     }
 
-    return dmlog_input_gets(ctx, Buffer, (size_t)Size) ? Buffer : NULL;
+    size_t read_count = 0;
+    while(read_count < Size && dmlog_input_available(ctx))
+    {
+        bytes[read_count++] = dmlog_input_getc(ctx);
+    }
+
+    return read_count;
 }
 
 /**
