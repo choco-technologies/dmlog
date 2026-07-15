@@ -1124,18 +1124,46 @@ DMOD_INPUT_API_DECLARATION( Dmod, 1.0, size_t ,_ReadKernel, ( void* Buffer, size
     return read_count;
 }
 
+/*
+ * g_stdin_flags (below) only controls Dmod_ReadKernel()'s raw-console input
+ * requests - it has no effect on a process whose stdin is actually bound to
+ * a real file (e.g. a tty attached via `tty attach` / redirection), since
+ * that path never goes through Dmod_ReadKernel at all. For a bound stdin,
+ * Dmod_Getc/Dmod_Gets go through Dmod_FileRead -> the driver mounted at that
+ * path, so ECHO/CANONICAL there is controlled by that driver's own ioctl,
+ * not this dmlog-local state. The command/flag numbers below intentionally
+ * duplicate dmtty_ioctl_cmd_get_flags/set_flags and dmtty_flag_echo/canonical
+ * (see dmtty_types.h) rather than taking a build dependency on dmtty from
+ * this foundational module - only dmtty currently implements this ioctl.
+ */
+#define DMTTY_IOCTL_CMD_GET_FLAGS 1
+#define DMTTY_IOCTL_CMD_SET_FLAGS 2
+#define DMTTY_FLAG_ECHO      ((uint32_t)(1u << 0))
+#define DMTTY_FLAG_CANONICAL ((uint32_t)(1u << 1))
+
 /**
  * @brief Get the current stdin flags.
- * 
+ *
  * Returns the current stdin flags that control ECHO and CANONICAL mode.
- * Converts internal dmlog flags to DMOD_STDIN_FLAG_* format.
- * 
+ * If the calling process's stdin is bound to a real file (e.g. a tty),
+ * queries that driver directly via ioctl; otherwise falls back to the
+ * dmlog raw-console flags used by Dmod_ReadKernel.
+ *
  * @return uint32_t Current stdin flags (DMOD_STDIN_FLAG_ECHO, DMOD_STDIN_FLAG_CANONICAL).
  */
 DMOD_INPUT_API_DECLARATION( Dmod, 1.0, uint32_t, _Stdin_GetFlags, ( void ) )
 {
+    uint32_t tty_flags = 0;
+    if (Dmod_Ioctl(DMOD_STDIN, DMTTY_IOCTL_CMD_GET_FLAGS, &tty_flags) == 0)
+    {
+        uint32_t flags = 0;
+        if (tty_flags & DMTTY_FLAG_ECHO)      flags |= DMOD_STDIN_FLAG_ECHO;
+        if (tty_flags & DMTTY_FLAG_CANONICAL) flags |= DMOD_STDIN_FLAG_CANONICAL;
+        return flags;
+    }
+
     uint32_t flags = 0;
-    
+
     // Convert dmlog flags to DMOD_STDIN_FLAG format
     // ECHO_OFF in dmlog means no ECHO flag in DMOD
     if(!(g_stdin_flags & DMLOG_INPUT_REQUEST_FLAG_ECHO_OFF))
@@ -1147,25 +1175,35 @@ DMOD_INPUT_API_DECLARATION( Dmod, 1.0, uint32_t, _Stdin_GetFlags, ( void ) )
     {
         flags |= DMOD_STDIN_FLAG_CANONICAL;
     }
-    
+
     return flags;
 }
 
 /**
  * @brief Set the stdin flags.
- * 
+ *
  * Sets the stdin flags that control ECHO and CANONICAL mode for
  * subsequent Dmod_Getc and Dmod_Gets calls.
- * Converts DMOD_STDIN_FLAG_* format to internal dmlog flags.
- * 
+ * If the calling process's stdin is bound to a real file (e.g. a tty),
+ * sets it directly on that driver via ioctl; otherwise falls back to the
+ * dmlog raw-console flags used by Dmod_ReadKernel.
+ *
  * @param Flags New stdin flags (DMOD_STDIN_FLAG_ECHO, DMOD_STDIN_FLAG_CANONICAL).
  * @return int 0 on success.
  */
 DMOD_INPUT_API_DECLARATION( Dmod, 1.0, int, _Stdin_SetFlags, ( uint32_t Flags ) )
 {
+    uint32_t tty_flags = 0;
+    if (Flags & DMOD_STDIN_FLAG_ECHO)      tty_flags |= DMTTY_FLAG_ECHO;
+    if (Flags & DMOD_STDIN_FLAG_CANONICAL) tty_flags |= DMTTY_FLAG_CANONICAL;
+    if (Dmod_Ioctl(DMOD_STDIN, DMTTY_IOCTL_CMD_SET_FLAGS, &tty_flags) == 0)
+    {
+        return 0;
+    }
+
     // Convert DMOD_STDIN_FLAG format to dmlog flags
     g_stdin_flags = DMLOG_INPUT_REQUEST_FLAG_DEFAULT;
-    
+
     // No ECHO flag in DMOD means ECHO_OFF in dmlog
     if(!(Flags & DMOD_STDIN_FLAG_ECHO))
     {
@@ -1176,7 +1214,7 @@ DMOD_INPUT_API_DECLARATION( Dmod, 1.0, int, _Stdin_SetFlags, ( uint32_t Flags ) 
     {
         g_stdin_flags |= DMLOG_INPUT_REQUEST_FLAG_LINE_MODE;
     }
-    
+
     return 0;
 }
 
