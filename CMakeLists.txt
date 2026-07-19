@@ -77,6 +77,7 @@ include(${DMOD_DIR}/paths.cmake)
 set(MODULE_NAME dmlog)
 add_library(${MODULE_NAME} STATIC
     src/dmlog.c
+    src/dmlog_registrations.c
 )
 
 target_compile_definitions(${MODULE_NAME} 
