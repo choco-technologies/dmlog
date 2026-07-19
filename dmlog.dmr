@@ -1,0 +1,22 @@
+# DMOD Resource File for dmlog
+# This file specifies where resources should be installed
+# Note: dmlog is a built-in module, so no .dmf file is distributed
+
+# === Header Files ===
+# Include directory with dmlog.h header
+inc=./include => ${destination}/${module}/include [origin=${repo_dir}/include]
+
+# === Static Library ===
+# Precompiled static library (architecture-specific build)
+lib=./lib/libdmlog.a => ${destination}/${module}/lib/libdmlog.a [origin=${build_dir}/libdmlog.a]
+
+# === Documentation ===
+# README file
+readme=./README.md => ${destination}/${module}/README.md [origin=${repo_dir}/README.md]
+
+# === License ===
+# License file
+license=./LICENSE => ${destination}/${module}/LICENSE [origin=${repo_dir}/LICENSE]
+
+# Adding itself
+dmr=./dmlog.dmr => ${destination}/${module}/dmlog.dmr [origin=${repo_dir}/dmlog.dmr]
