@@ -1142,26 +1142,17 @@ DMOD_INPUT_API_DECLARATION( Dmod, 1.0, size_t ,_ReadKernel, ( void* Buffer, size
 #define DMTTY_FLAG_CANONICAL ((uint32_t)(1u << 1))
 
 /**
- * @brief Get the current stdin flags.
+ * @brief Get the current kernel-level input flags (dmlog's own strong override of
+ *        Dmod_GetKernelInputFlags - see dmod_sal.h).
  *
- * Returns the current stdin flags that control ECHO and CANONICAL mode.
- * If the calling process's stdin is bound to a real file (e.g. a tty),
- * queries that driver directly via ioctl; otherwise falls back to the
- * dmlog raw-console flags used by Dmod_ReadKernel.
+ * These are the flags Dmod_ReadKernel() honors via dmlog_input_request(): the raw-console
+ * request protocol used whenever a stream has no file bound to it, completely independent
+ * of any bound driver's own flags/ioctl.
  *
- * @return uint32_t Current stdin flags (DMOD_STDIN_FLAG_ECHO, DMOD_STDIN_FLAG_CANONICAL).
+ * @return uint32_t Current flags (DMOD_STDIN_FLAG_ECHO, DMOD_STDIN_FLAG_CANONICAL).
  */
-DMOD_INPUT_API_DECLARATION( Dmod, 1.0, uint32_t, _Stdin_GetFlags, ( void ) )
+DMOD_INPUT_API_DECLARATION( Dmod, 1.0, uint32_t, _GetKernelInputFlags, ( void ) )
 {
-    uint32_t tty_flags = 0;
-    if (Dmod_Ioctl(DMOD_STDIN, DMTTY_IOCTL_CMD_GET_FLAGS, &tty_flags) == 0)
-    {
-        uint32_t flags = 0;
-        if (tty_flags & DMTTY_FLAG_ECHO)      flags |= DMOD_STDIN_FLAG_ECHO;
-        if (tty_flags & DMTTY_FLAG_CANONICAL) flags |= DMOD_STDIN_FLAG_CANONICAL;
-        return flags;
-    }
-
     uint32_t flags = 0;
 
     // Convert dmlog flags to DMOD_STDIN_FLAG format
@@ -1180,27 +1171,17 @@ DMOD_INPUT_API_DECLARATION( Dmod, 1.0, uint32_t, _Stdin_GetFlags, ( void ) )
 }
 
 /**
- * @brief Set the stdin flags.
+ * @brief Set the kernel-level input flags (dmlog's own strong override of
+ *        Dmod_SetKernelInputFlags - see dmod_sal.h).
  *
- * Sets the stdin flags that control ECHO and CANONICAL mode for
- * subsequent Dmod_Getc and Dmod_Gets calls.
- * If the calling process's stdin is bound to a real file (e.g. a tty),
- * sets it directly on that driver via ioctl; otherwise falls back to the
- * dmlog raw-console flags used by Dmod_ReadKernel.
+ * Updates g_stdin_flags, which governs Dmod_ReadKernel()'s subsequent raw-console input
+ * requests via dmlog_input_request().
  *
- * @param Flags New stdin flags (DMOD_STDIN_FLAG_ECHO, DMOD_STDIN_FLAG_CANONICAL).
+ * @param Flags New flags (DMOD_STDIN_FLAG_ECHO, DMOD_STDIN_FLAG_CANONICAL).
  * @return int 0 on success.
  */
-DMOD_INPUT_API_DECLARATION( Dmod, 1.0, int, _Stdin_SetFlags, ( uint32_t Flags ) )
+DMOD_INPUT_API_DECLARATION( Dmod, 1.0, int, _SetKernelInputFlags, ( uint32_t Flags ) )
 {
-    uint32_t tty_flags = 0;
-    if (Flags & DMOD_STDIN_FLAG_ECHO)      tty_flags |= DMTTY_FLAG_ECHO;
-    if (Flags & DMOD_STDIN_FLAG_CANONICAL) tty_flags |= DMTTY_FLAG_CANONICAL;
-    if (Dmod_Ioctl(DMOD_STDIN, DMTTY_IOCTL_CMD_SET_FLAGS, &tty_flags) == 0)
-    {
-        return 0;
-    }
-
     // Convert DMOD_STDIN_FLAG format to dmlog flags
     g_stdin_flags = DMLOG_INPUT_REQUEST_FLAG_DEFAULT;
 
@@ -1216,6 +1197,75 @@ DMOD_INPUT_API_DECLARATION( Dmod, 1.0, int, _Stdin_SetFlags, ( uint32_t Flags ) 
     }
 
     return 0;
+}
+
+/**
+ * @brief Get the current stdin flags.
+ *
+ * Returns the current stdin flags that control ECHO and CANONICAL mode.
+ * Resolves DMOD_STDIN exactly like Dmod_FileRead/Dmod_FileWrite do (see
+ * Dmod_LockStdio): if nothing is bound, falls back to Dmod_GetKernelInputFlags(),
+ * the flags used by Dmod_ReadKernel; otherwise queries the bound driver via ioctl.
+ *
+ * @return uint32_t Current stdin flags (DMOD_STDIN_FLAG_ECHO, DMOD_STDIN_FLAG_CANONICAL).
+ */
+DMOD_INPUT_API_DECLARATION( Dmod, 1.0, uint32_t, _Stdin_GetFlags, ( void ) )
+{
+    void* resolvedFile = Dmod_LockStdio(DMOD_STDIN);
+    if (resolvedFile == NULL)
+    {
+        return Dmod_GetKernelInputFlags();
+    }
+
+    uint32_t tty_flags = 0;
+    int result = Dmod_Ioctl(resolvedFile, DMTTY_IOCTL_CMD_GET_FLAGS, &tty_flags);
+    Dmod_UnlockStdio(DMOD_STDIN);
+
+    if (result != 0)
+    {
+        return Dmod_GetKernelInputFlags();
+    }
+
+    uint32_t flags = 0;
+    if (tty_flags & DMTTY_FLAG_ECHO)      flags |= DMOD_STDIN_FLAG_ECHO;
+    if (tty_flags & DMTTY_FLAG_CANONICAL) flags |= DMOD_STDIN_FLAG_CANONICAL;
+    return flags;
+}
+
+/**
+ * @brief Set the stdin flags.
+ *
+ * Sets the stdin flags that control ECHO and CANONICAL mode for
+ * subsequent Dmod_Getc and Dmod_Gets calls.
+ * Resolves DMOD_STDIN exactly like Dmod_FileRead/Dmod_FileWrite do (see
+ * Dmod_LockStdio): if nothing is bound, falls back to Dmod_SetKernelInputFlags(),
+ * the flags used by Dmod_ReadKernel; otherwise sets them directly on the bound
+ * driver via ioctl.
+ *
+ * A driver bound to DMOD_STDIN that itself falls back to Dmod_ReadKernel/
+ * Dmod_WriteKernel when unbound underneath (e.g. dmtty's default, unbound
+ * /dev/tty - see dmtty's handle_read()/handle_write()) is responsible for
+ * forwarding to Dmod_SetKernelInputFlags() itself in that case, exactly as
+ * it forwards reads/writes there - from here, such a driver is indistinguishable
+ * from one that is genuinely bound to a real backing file.
+ *
+ * @param Flags New stdin flags (DMOD_STDIN_FLAG_ECHO, DMOD_STDIN_FLAG_CANONICAL).
+ * @return int 0 on success.
+ */
+DMOD_INPUT_API_DECLARATION( Dmod, 1.0, int, _Stdin_SetFlags, ( uint32_t Flags ) )
+{
+    void* resolvedFile = Dmod_LockStdio(DMOD_STDIN);
+    if (resolvedFile == NULL)
+    {
+        return Dmod_SetKernelInputFlags(Flags);
+    }
+
+    uint32_t tty_flags = 0;
+    if (Flags & DMOD_STDIN_FLAG_ECHO)      tty_flags |= DMTTY_FLAG_ECHO;
+    if (Flags & DMOD_STDIN_FLAG_CANONICAL) tty_flags |= DMTTY_FLAG_CANONICAL;
+    int result = Dmod_Ioctl(resolvedFile, DMTTY_IOCTL_CMD_SET_FLAGS, &tty_flags);
+    Dmod_UnlockStdio(DMOD_STDIN);
+    return result;
 }
 
 #endif // DMLOG_DONT_IMPLEMENT_DMOD_API
