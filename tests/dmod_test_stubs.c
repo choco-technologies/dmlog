@@ -26,10 +26,17 @@ __attribute__((weak)) char __dmod_outputs_size = 0;
 // Dmod_Getc/Dmod_Gets/Dmod_Printf never fall through to dmlog's own
 // Dmod_ReadKernel/Dmod_WriteKernel ring-buffer path. Tests need that raw
 // kernel-I/O path (it's what they poke via the ring buffer directly), so
-// report every stream as unbound here, matching the embedded
+// report the four standard streams as unbound here, matching the embedded
 // (DMOD_USE_STDIO=OFF) target behavior these tests are meant to exercise.
+// Ordinary file handles (e.g. from Dmod_FileOpen) must still pass through
+// unchanged - otherwise Dmod_FileRead/Dmod_FileWrite for real files (used by
+// dmlog_file_send/dmlog_file_recv) would get routed into the ring buffer too.
 void* Dmod_LockStdio(void* StdHandle)
 {
-    (void)StdHandle;
-    return NULL;
+    if(StdHandle == DMOD_STDIN || StdHandle == DMOD_STDOUT ||
+       StdHandle == DMOD_STDERR || StdHandle == DMOD_STDLOG)
+    {
+        return NULL;
+    }
+    return StdHandle;
 }
