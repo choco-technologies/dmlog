@@ -1077,14 +1077,12 @@ DMOD_INPUT_API_DECLARATION( Dmod, 1.0, size_t ,_WriteKernel, ( const void* Buffe
 }
 
 /**
- * @brief Simple delay function for busy-waiting.
+ * @brief How long Dmod_ReadKernel() sleeps between checks for host input
  *
- * @param cycles Number of cycles to wait.
+ * A latency/wake-up trade-off, not a protocol constant: the host has no way to
+ * signal the target, so input is only ever noticed by looking.
  */
-static void delay(int cycles)
-{
-    for(volatile int i = 0; i < cycles; i++);
-}
+#define DMLOG_INPUT_POLL_MS 10u
 
 /**
  * @brief Built-in raw kernel read function for DMLoG.
@@ -1112,7 +1110,7 @@ DMOD_INPUT_API_DECLARATION( Dmod, 1.0, size_t ,_ReadKernel, ( void* Buffer, size
     while(!dmlog_input_available(ctx))
     {
         dmlog_input_request(ctx, g_stdin_flags);
-        delay(1000);
+        Dmod_ThreadSleep(DMLOG_INPUT_POLL_MS);
     }
 
     size_t read_count = 0;
