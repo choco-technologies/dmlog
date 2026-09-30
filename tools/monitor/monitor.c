@@ -272,6 +272,22 @@ bool monitor_update_ring(monitor_ctx_t *ctx)
 }
 
 /**
+ * @brief Delay between two polls of the target
+ *
+ * With the GDB backend every ring read halts the target, and it only runs
+ * again when resumed between polls - poll slowly enough that it actually gets
+ * to execute in between (under Renode a 10 ms window lets the firmware do next
+ * to nothing, so it never progresses).
+ *
+ * @param ctx Pointer to the monitor context
+ * @return useconds_t Delay in microseconds
+ */
+static useconds_t poll_interval_us(monitor_ctx_t *ctx)
+{
+    return ctx->backend_type == BACKEND_TYPE_GDB ? 200000 : 10000;
+}
+
+/**
  * @brief Wait until the dmlog ring buffer is no longer busy
  * 
  * This function continuously reads the flags of the dmlog ring buffer
@@ -297,7 +313,14 @@ bool monitor_wait_until_not_busy(monitor_ctx_t *ctx)
             success = false;
             break;
         }
-        usleep(10000);
+
+        // A GDB read may have stopped the target while it held the flag, and a
+        // stopped target never releases it - let it run before polling again
+        if(ctx->backend_type == BACKEND_TYPE_GDB && gdb_resume_briefly(ctx->socket) < 0)
+        {
+            TRACE_WARN("Failed to resume target while waiting for the busy flag\n");
+        }
+        usleep(poll_interval_us(ctx));
     }
     return success;
 }
@@ -316,11 +339,7 @@ bool monitor_wait_for_new_data(monitor_ctx_t *ctx)
     bool empty = is_buffer_empty(ctx);
     while(empty)
     {
-        // With the GDB backend every ring read halts the target, and it only
-        // runs again when resumed below - poll slowly enough that it actually
-        // gets to execute in between (under Renode a 10 ms window lets the
-        // firmware do next to nothing, so the boot never progresses)
-        usleep(ctx->backend_type == BACKEND_TYPE_GDB ? 200000 : 10000);
+        usleep(poll_interval_us(ctx));
         if(!monitor_update_ring(ctx))
         {
             TRACE_ERROR("monitor_update_ring failed in wait_for_new_data\n");
