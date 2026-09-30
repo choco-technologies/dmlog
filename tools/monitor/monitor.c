@@ -316,7 +316,11 @@ bool monitor_wait_for_new_data(monitor_ctx_t *ctx)
     bool empty = is_buffer_empty(ctx);
     while(empty)
     {
-        usleep(10000);
+        // With the GDB backend every ring read halts the target, and it only
+        // runs again when resumed below - poll slowly enough that it actually
+        // gets to execute in between (under Renode a 10 ms window lets the
+        // firmware do next to nothing, so the boot never progresses)
+        usleep(ctx->backend_type == BACKEND_TYPE_GDB ? 200000 : 10000);
         if(!monitor_update_ring(ctx))
         {
             TRACE_ERROR("monitor_update_ring failed in wait_for_new_data\n");
