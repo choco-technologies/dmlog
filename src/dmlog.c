@@ -1133,9 +1133,11 @@ DMOD_INPUT_API_DECLARATION( Dmod, 1.0, size_t ,_ReadKernel, ( void* Buffer, size
  * duplicate dmtty_ioctl_cmd_get_flags/set_flags and dmtty_flag_echo/canonical
  * (see dmtty_types.h) rather than taking a build dependency on dmtty from
  * this foundational module - only dmtty currently implements this ioctl.
+ * dmtty's private commands start at DMDRVI_IOCTL_CUSTOM_BASE (0x1000) since
+ * dmtty 1.1 - keep these in sync with dmtty_types.h.
  */
-#define DMTTY_IOCTL_CMD_GET_FLAGS 1
-#define DMTTY_IOCTL_CMD_SET_FLAGS 2
+#define DMTTY_IOCTL_CMD_GET_FLAGS 0x1000
+#define DMTTY_IOCTL_CMD_SET_FLAGS 0x1001
 #define DMTTY_FLAG_ECHO      ((uint32_t)(1u << 0))
 #define DMTTY_FLAG_CANONICAL ((uint32_t)(1u << 1))
 
