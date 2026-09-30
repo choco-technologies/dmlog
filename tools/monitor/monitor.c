@@ -6,6 +6,7 @@
 #include "monitor.h"
 #include "trace.h"
 #include "gdb.h"
+#include "dmod.h"
 #include <termios.h>
 #include <fcntl.h>
 #include <errno.h>

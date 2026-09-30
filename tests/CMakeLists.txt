@@ -10,6 +10,7 @@ enable_testing()
 #               Test: Unit Tests
 # =====================================================================
 add_executable(test_dmlog_unit test_dmlog_unit.c dmod_test_stubs.c)
+dmod_set_current_allocator(test_dmlog_unit)
 target_link_libraries(test_dmlog_unit 
     PRIVATE 
         dmlog
@@ -27,6 +28,7 @@ target_include_directories(test_dmlog_unit
 #               Test: Simple Test
 # =====================================================================
 add_executable(test_simple test_simple.c dmod_test_stubs.c)
+dmod_set_current_allocator(test_simple)
 target_link_libraries(test_simple 
     PRIVATE 
         dmlog
@@ -44,6 +46,7 @@ target_include_directories(test_simple
 #               Test: Benchmark Test
 # =====================================================================
 add_executable(test_benchmark test_benchmark.c dmod_test_stubs.c)
+dmod_set_current_allocator(test_benchmark)
 target_link_libraries(test_benchmark 
     PRIVATE 
         dmlog
@@ -61,6 +64,7 @@ target_include_directories(test_benchmark
 #               Test: Input Test
 # =====================================================================
 add_executable(test_input test_input.c dmod_test_stubs.c)
+dmod_set_current_allocator(test_input)
 target_link_libraries(test_input 
     PRIVATE 
         dmlog
@@ -78,6 +82,7 @@ target_include_directories(test_input
 #               Test: DMOD Input API Test
 # =====================================================================
 add_executable(test_dmod_input_api test_dmod_input_api.c dmod_test_stubs.c)
+dmod_set_current_allocator(test_dmod_input_api)
 target_link_libraries(test_dmod_input_api 
     PRIVATE 
         dmlog
@@ -95,6 +100,7 @@ target_include_directories(test_dmod_input_api
 #               Test: Interactive Test Application
 # =====================================================================
 add_executable(test_app_interactive test_app_interactive.c dmod_test_stubs.c)
+dmod_set_current_allocator(test_app_interactive)
 target_link_libraries(test_app_interactive 
     PRIVATE 
         dmlog
