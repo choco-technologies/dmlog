@@ -66,6 +66,8 @@ static int gdb_send_packet(int socket, const char *data)
     return 0;
 }
 
+static int gdb_receive_packet_body(int socket, char *buffer, size_t buffer_size);
+
 /**
  * @brief Receive a GDB packet
  * 
@@ -87,6 +89,25 @@ static int gdb_receive_packet(int socket, char *buffer, size_t buffer_size)
             return -1;
         }
     } while (c != '$');
+    
+    return gdb_receive_packet_body(socket, buffer, buffer_size);
+}
+
+/**
+ * @brief Receive the rest of a GDB packet whose leading '$' was already read
+ * 
+ * Reads the data up to '#', verifies the checksum and acknowledges the
+ * packet ('+', or '-' on a checksum mismatch).
+ * 
+ * @param socket Socket file descriptor
+ * @param buffer Buffer to store received packet data (without $ and #checksum)
+ * @param buffer_size Size of the buffer
+ * @return int Length of received data on success, -1 on failure
+ */
+static int gdb_receive_packet_body(int socket, char *buffer, size_t buffer_size)
+{
+    char c;
+    ssize_t n;
     
     // Read packet data until '#'
     size_t offset = 0;
@@ -134,29 +155,49 @@ static int gdb_receive_packet(int socket, char *buffer, size_t buffer_size)
     return (int)offset;
 }
 
+/** @brief Most unsolicited packets gdb_wait_for_ack() skips before giving up */
+#define GDB_MAX_SKIPPED_PACKETS 8
+
 /**
- * @brief Send ACK and wait for acknowledgment
+ * @brief Wait for the acknowledgment of a packet just sent
+ * 
+ * A GDB server may send a packet of its own before acknowledging ours - in
+ * practice a late stop reply ("S02"/"T05") to the interrupt sent while
+ * connecting (Renode does this). Such a packet is received, acknowledged
+ * and skipped, and the wait for our '+' goes on; reading it as the ack would
+ * see its leading '$' and fail the whole command.
  * 
  * @param socket Socket file descriptor
  * @return int 0 on success, -1 on failure
  */
 static int gdb_wait_for_ack(int socket)
 {
-    char ack;
-    ssize_t n = recv(socket, &ack, 1, 0);
-    if (n <= 0) {
-        TRACE_ERROR("Failed to receive GDB acknowledgment\n");
-        return -1;
+    for (int skipped = 0; skipped <= GDB_MAX_SKIPPED_PACKETS; skipped++) {
+        char ack;
+        ssize_t n = recv(socket, &ack, 1, 0);
+        if (n <= 0) {
+            TRACE_ERROR("Failed to receive GDB acknowledgment\n");
+            return -1;
+        }
+        
+        if (ack == '+') {
+            return 0;
+        } else if (ack == '-') {
+            TRACE_ERROR("GDB server sent NAK\n");
+            return -1;
+        } else if (ack != '$') {
+            TRACE_WARN("Unexpected GDB response: %c\n", ack);
+            return -1;
+        }
+        
+        char packet[256];
+        if (gdb_receive_packet_body(socket, packet, sizeof(packet)) < 0) {
+            return -1;
+        }
+        TRACE_WARN("Skipped packet '%s' received while waiting for an acknowledgment\n", packet);
     }
     
-    if (ack == '+') {
-        return 0;
-    } else if (ack == '-') {
-        TRACE_ERROR("GDB server sent NAK\n");
-        return -1;
-    }
-    
-    TRACE_WARN("Unexpected GDB response: %c\n", ack);
+    TRACE_ERROR("No GDB acknowledgment after %d unsolicited packets\n", GDB_MAX_SKIPPED_PACKETS);
     return -1;
 }
 
