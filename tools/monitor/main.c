@@ -38,6 +38,8 @@ void usage(const char *progname)
     printf("  --blocking    Use blocking mode for reading log entries\n");
     printf("  --snapshot    Enable snapshot mode to reduce target reads\n");
     printf("  --gdb         Use GDB backend instead of OpenOCD\n");
+    printf("  --halt-target Halt this OpenOCD target around each memory access (for cores whose memory\n");
+    printf("                cannot be read while they run, e.g. esp32s3.cpu0; default: never)\n");
     printf("  --input-file  File to read input from for automated testing\n");
     printf("  --init-script File to read as initialization script, then switch to stdin\n");
 }
@@ -128,6 +130,11 @@ int main(int argc, char *argv[])
         {
             input_file_path = argv[++i];
             init_script_mode = true;
+        }
+        else if(strcmp(argv[i], "--halt-target") == 0 && i + 1 < argc)
+        {
+            strncpy(backend_addr.halt_target, argv[++i], sizeof(backend_addr.halt_target) - 1);
+            backend_addr.halt_target[sizeof(backend_addr.halt_target) - 1] = '\0';
         }
         else if(strcmp(argv[i], "--gdb") == 0)
         {

@@ -222,6 +222,10 @@ static size_t read_line(int socket, char *buffer, size_t max_length)
  * @param addr Pointer to opencd_addr_t structure with host and port
  * @return int Socket file descriptor on success, -1 on failure
  */
+/* The target that is halted around each memory access (set at the connect; empty: the access is made on the running target).
+   The cores of the STM32 are read while they run; the Xtensa of the ESP32-S3 only halted. */
+static char s_halt_target[64] = "";
+
 int openocd_connect(const backend_addr_t *addr)
 {
     struct addrinfo hints = {
@@ -259,6 +263,23 @@ int openocd_connect(const backend_addr_t *addr)
             if(openocd_set_debug_level(sock, 0) < 0)
             {
                 TRACE_WARN("Failed to set OpenOCD debug level\n");
+            }
+
+            strncpy(s_halt_target, addr->halt_target, sizeof(s_halt_target) - 1);
+            s_halt_target[sizeof(s_halt_target) - 1] = '\0';
+            if(s_halt_target[0] != '\0')
+            {
+                // The commands that follow (halt, mdw, resume) act on this target
+                char cmd[128];
+                char response[256] = {0};
+                snprintf(cmd, sizeof(cmd), "targets %s", s_halt_target);
+                if(openocd_send_command(sock, cmd, response, sizeof(response)) < 0)
+                {
+                    TRACE_ERROR("Failed to select the OpenOCD target %s\n", s_halt_target);
+                    close(sock);
+                    return -1;
+                }
+                TRACE_INFO("The target %s is halted around each memory access\n", s_halt_target);
             }
 
             return sock;
@@ -408,7 +429,35 @@ int openocd_send_command(int socket, const char *cmd, char *response, size_t res
  * @param length Number of bytes to read
  * @return int 0 on success, -1 on failure
  */
+static int openocd_halt(int socket)
+{
+    char response[256] = {0};
+    return s_halt_target[0] == '\0' ? 0 : openocd_send_command(socket, "halt", response, sizeof(response));
+}
+
+static void openocd_resume(int socket)
+{
+    char response[256] = {0};
+    if(s_halt_target[0] != '\0')
+    {
+        openocd_send_command(socket, "resume", response, sizeof(response));
+    }
+}
+
+static int openocd_read_memory_running(int socket, uint64_t address, void *buffer, size_t length);
+
 int openocd_read_memory(int socket, uint64_t address, void *buffer, size_t length)
+{
+    if(openocd_halt(socket) < 0)
+    {
+        return -1;
+    }
+    int result = openocd_read_memory_running(socket, address, buffer, length);
+    openocd_resume(socket);
+    return result;
+}
+
+static int openocd_read_memory_running(int socket, uint64_t address, void *buffer, size_t length)
 {
     char cmd[64];
     size_t word_count = (length + 3) / 4; // Number of 32-bit words to read
@@ -465,7 +514,20 @@ int openocd_read_memory(int socket, uint64_t address, void *buffer, size_t lengt
  * @param length Number of bytes to write
  * @return int 0 on success, -1 on failure
  */
+static int openocd_write_memory_running(int socket, uint64_t address, const void *buffer, size_t length);
+
 int openocd_write_memory(int socket, uint64_t address, const void *buffer, size_t length)
+{
+    if(openocd_halt(socket) < 0)
+    {
+        return -1;
+    }
+    int result = openocd_write_memory_running(socket, address, buffer, length);
+    openocd_resume(socket);
+    return result;
+}
+
+static int openocd_write_memory_running(int socket, uint64_t address, const void *buffer, size_t length)
 {
     char cmd[128];
     size_t word_count = length / 4; 

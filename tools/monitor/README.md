@@ -58,6 +58,7 @@ This connects to OpenOCD at `localhost:4444` and monitors the ring buffer at the
 - `--trace-level LEVEL` - Set trace level (error, warn, info, verbose)
 - `--verbose` - Enable verbose output (equivalent to --trace-level verbose)
 - `--time` - Show timestamps with log entries
+- `--halt-target NAME` - Halt the OpenOCD target NAME around each memory access and resume it after (also selects it). For the cores whose memory cannot be read while they run - the Xtensa of the ESP32-S3: `--halt-target esp32s3.cpu0`. Not set by default: the STM32 is read while it runs. Each access stops the core for a few milliseconds
 - `--blocking` - Use blocking mode for reading log entries
 - `--snapshot` - Enable snapshot mode to reduce target reads
 - `--gdb` - Use GDB backend instead of OpenOCD

@@ -24,6 +24,8 @@ typedef struct
     char host[256];         //!< Backend host address
     int port;               //!< Backend port number
     backend_type_t type;    //!< Backend type
+    char halt_target[64];   //!< OpenOCD target to halt around each memory access ("" = never halt, the default). For cores
+                            //!< whose memory cannot be read while they run (the Xtensa of the ESP32-S3: "esp32s3.cpu0")
 } backend_addr_t;
 
 /**
